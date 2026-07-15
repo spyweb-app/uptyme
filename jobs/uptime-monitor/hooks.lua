@@ -1,6 +1,5 @@
 local db = require("lib.db")
 local pipeline = require("lib.check_pipeline")
-local alert = require("alert")
 
 local settings = db.get_settings()
 local role = settings.role or "standalone"
@@ -49,26 +48,5 @@ function after_fetch(fetch_result, ctx)
 
     local result = pipeline.run(fetch_result, s)
     strategy.after_fetch(s, result.now, result)
-
-    -- Cert check — standalone and central only, skip on checker
-    if s.check_cert == 1 and role ~= "checker" then
-        local last = s.cert_last_check
-        if not last or (result.now - tonumber(last)) >= 86400 then
-            local host = s.monitor_url:match("https://([^/]+)")
-            if host then
-                local cert, err = tls_probe(host)
-                if cert then
-                    db.update_cert_info(s.monitor_id, cert.not_after, cert.days_left, result.now)
-                    if cert.days_left < s.cert_threshold_days then
-                        alert.do_alert(s, "DOWN", "Certificate expires in " .. cert.days_left .. " days (" .. cert.subject .. ")")
-                    end
-                else
-                    db.update_cert_info(s.monitor_id, nil, nil, result.now)
-                    alert.do_alert(s, "DOWN", "TLS probe failed: " .. (err or "unknown"))
-                end
-            end
-        end
-    end
-
     return nil
 end

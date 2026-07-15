@@ -1,5 +1,6 @@
 local db = require("lib.db")
 local consensus = require("lib.consensus")
+local cert_checker = require("lib.cert_checker")
 
 local M = {}
 
@@ -13,6 +14,7 @@ function M.after_fetch(s, now, result)
     error_message = result.err_msg,
   })
   consensus.evaluate(s.monitor_id, result.is_up)
+  cert_checker.check_and_alert(s, now)
 end
 
 return M

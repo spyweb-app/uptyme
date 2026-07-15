@@ -4,6 +4,14 @@ local import_export = require("lib.import_export")
 
 local M = {}
 
+local function reject_checker_mutation()
+    local s = db.get_settings()
+    if s.role == "checker" then
+        return H.json_response(403, nil, "This node is a checker — monitors are managed on the central node")
+    end
+    return nil
+end
+
 function M.export(self)
     local fmt = self.query.format or "json"
     local rows = db.export_all()
@@ -21,6 +29,9 @@ function M.export(self)
 end
 
 function M.import(self)
+    local denied = reject_checker_mutation()
+    if denied then return denied end
+
     local entries = import_export.parse_import(self.body or "")
     if not entries then
         return H.json_response(400, nil, "Invalid JSON or CSV — check the file format and try again")
@@ -37,6 +48,9 @@ function M.import(self)
                 skipped = skipped + 1
             end
         end
+    end
+    if imported > 0 then
+        db.bump_monitors_version()
     end
     return H.json_response(200, {
         imported = imported, skipped = skipped, failed = failed, total = #entries,
@@ -90,6 +104,9 @@ function M.list(self)
 end
 
 function M.create(self)
+    local denied = reject_checker_mutation()
+    if denied then return denied end
+
     local data = json_decode(self.body or "")
     if not data or type(data) ~= "table" then
         return H.json_response(400, nil, "Invalid JSON body")
@@ -110,12 +127,16 @@ function M.create(self)
     if not ok2 then
         return H.json_response(409, nil, "Failed to create: " .. tostring(err))
     end
+    db.bump_monitors_version()
 
     local row = db.get_by_url(data.url)
     return H.json_response(201, row)
 end
 
 function M.update(self)
+    local denied = reject_checker_mutation()
+    if denied then return denied end
+
     local id = H.id_or_nil(self.path_args)
     if not id then
         return H.json_response(400, nil, "Monitor ID required")
@@ -151,6 +172,7 @@ function M.update(self)
     end
 
     db.update_monitor(id, sets, params)
+    db.bump_monitors_version()
 
     local row = db.get(id)
     if not row then
@@ -160,6 +182,9 @@ function M.update(self)
 end
 
 function M.remove(self)
+    local denied = reject_checker_mutation()
+    if denied then return denied end
+
     local id = H.id_or_nil(self.path_args)
     if not id then
         return H.json_response(400, nil, "Monitor ID required")
@@ -171,6 +196,7 @@ function M.remove(self)
     end
 
     db.delete_monitor(id)
+    db.bump_monitors_version()
     return H.json_response(200, { deleted = true })
 end
 

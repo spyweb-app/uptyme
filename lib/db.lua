@@ -1,3 +1,6 @@
+local runtime_config = require("lib.runtime_config")
+local sha256 = require("lib.sha256")
+
 local M = {}
 
 -- =============================================================================
@@ -9,6 +12,7 @@ function M.ensure_schema()
     M._ensure_check_history()
     M._ensure_settings()
     M._ensure_notifications()
+    M._ensure_nodes()
 end
 
 function M._ensure_monitors()
@@ -62,6 +66,10 @@ function M._ensure_settings()
             value TEXT NOT NULL
         )
     ]])
+    db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('role', 'standalone')")
+    db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('sync_interval_sec', '10')")
+    db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('node_liveness_sec', '90')")
+    db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('monitors_version', '0')")
     db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('retention_days', '90')")
     db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('alert_cooldown_sec', '300')")
     db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('instance_name', 'PULSE')")
@@ -85,6 +93,22 @@ function M._ensure_notifications()
             monitor_id  INTEGER NOT NULL REFERENCES monitors(id) ON DELETE CASCADE,
             channel_id  INTEGER NOT NULL REFERENCES notification_channels(id) ON DELETE CASCADE,
             PRIMARY KEY (monitor_id, channel_id)
+        )
+    ]])
+end
+
+function M._ensure_nodes()
+    db_exec([[
+        CREATE TABLE IF NOT EXISTS nodes (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            name          TEXT NOT NULL,
+            role          TEXT NOT NULL DEFAULT 'checker',
+            token_prefix  TEXT NOT NULL UNIQUE,
+            token_hash    TEXT NOT NULL,
+            last_seen_at  INTEGER,
+            active        INTEGER DEFAULT 1,
+            created_at    INTEGER DEFAULT (cast(strftime('%s','now') AS INTEGER)),
+            updated_at    INTEGER DEFAULT (cast(strftime('%s','now') AS INTEGER))
         )
     ]])
 end
@@ -199,6 +223,16 @@ function M.export_all()
     return db_query("SELECT * FROM monitors ORDER BY created_at DESC")
 end
 
+function M.export_syncable()
+    return db_query([[
+        SELECT id, name, url, method, interval_sec, timeout_ms, check_value,
+               enabled, desktop_notify, check_cert, cert_threshold_days,
+               created_at, updated_at
+        FROM monitors
+        ORDER BY created_at DESC
+    ]])
+end
+
 function M.get(id)
     local rows = db_query("SELECT * FROM monitors WHERE id = ?", { id })
     return rows[1]
@@ -294,6 +328,70 @@ function M.delete_monitor(id)
     db_exec("DELETE FROM monitors WHERE id = ?", { id })
 end
 
+function M.sync_from_central(rows)
+    rows = rows or {}
+    local now = os.time()
+    local seen = {}
+
+    for _, entry in ipairs(rows) do
+        local id = tonumber(entry.id)
+        if id and entry.name and entry.url then
+            seen[#seen + 1] = id
+            local current = M.get(id)
+            local params = {
+                entry.name,
+                entry.url,
+                entry.method or "HEAD",
+                entry.interval_sec or 300,
+                entry.timeout_ms or 10000,
+                entry.check_value or "",
+                entry.enabled == nil and 1 or (entry.enabled ~= 0 and 1 or 0),
+                entry.desktop_notify == nil and 0 or (entry.desktop_notify ~= 0 and 1 or 0),
+                entry.check_cert == nil and 0 or (entry.check_cert ~= 0 and 1 or 0),
+                entry.cert_threshold_days or 14,
+                now,
+            }
+
+            if current then
+                db_exec([[
+                    UPDATE monitors
+                    SET name = ?, url = ?, method = ?, interval_sec = ?, timeout_ms = ?,
+                        check_value = ?, enabled = ?, desktop_notify = ?, check_cert = ?,
+                        cert_threshold_days = ?, updated_at = ?
+                    WHERE id = ?
+                ]], {
+                    params[1], params[2], params[3], params[4], params[5], params[6],
+                    params[7], params[8], params[9], params[10], params[11], id
+                })
+            else
+                db_exec([[
+                    INSERT INTO monitors (
+                        id, name, url, method, interval_sec, timeout_ms, check_value,
+                        enabled, desktop_notify, check_cert, cert_threshold_days,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ]], {
+                    id, params[1], params[2], params[3], params[4], params[5], params[6],
+                    params[7], params[8], params[9], params[10], entry.created_at or now, entry.updated_at or now
+                })
+            end
+        end
+    end
+
+    local disable_params = { now }
+    local disable_clause = ""
+    if #seen > 0 then
+        local placeholders = {}
+        for _, id in ipairs(seen) do
+            placeholders[#placeholders + 1] = "?"
+            disable_params[#disable_params + 1] = id
+        end
+        disable_clause = " AND id NOT IN (" .. table.concat(placeholders, ", ") .. ")"
+    end
+
+    db_exec("UPDATE monitors SET enabled = 0, updated_at = ? WHERE enabled = 1" .. disable_clause, disable_params)
+end
+
 -- =============================================================================
 -- Monitors — Lifecycle (used by hooks)
 -- =============================================================================
@@ -342,6 +440,16 @@ function M.get_settings()
     for _, row in ipairs(rows) do
         settings[row.key] = row.value
     end
+
+    if runtime_config.enabled() then
+        local bootstrap = runtime_config.bootstrap_settings()
+        for key, value in pairs(bootstrap) do
+            if settings[key] == nil or settings[key] == "" then
+                settings[key] = value
+            end
+        end
+    end
+
     return settings
 end
 
@@ -365,6 +473,58 @@ end
 function M.get_cert_threshold_days()
     local rows = db_query("SELECT value FROM settings WHERE key = 'cert_threshold_days'")
     return tonumber(rows[1] and rows[1].value) or 14
+end
+
+function M.get_node_by_prefix(prefix)
+    local rows = db_query("SELECT * FROM nodes WHERE token_prefix = ?", { prefix })
+    return rows[1]
+end
+
+function M.get_node(id)
+    local rows = db_query("SELECT * FROM nodes WHERE id = ?", { id })
+    return rows[1]
+end
+
+function M.list_nodes()
+    return db_query("SELECT * FROM nodes ORDER BY created_at DESC")
+end
+
+function M.create_node(data)
+    local token = data.token or ""
+    local prefix, secret = token:match("^([^%.]+)%.(.+)$")
+    if not prefix or not secret then
+        return nil, "invalid token format"
+    end
+
+    local ok, err = pcall(db_exec, [[
+        INSERT INTO nodes (name, role, token_prefix, token_hash, active)
+        VALUES (?, ?, ?, ?, ?)
+    ]], {
+        data.name,
+        data.role or "checker",
+        prefix,
+        sha256.hex(secret),
+        data.active == nil and 1 or (data.active ~= 0 and 1 or 0),
+    })
+    if not ok then return nil, err end
+    return M.get_node_by_prefix(prefix)
+end
+
+function M.touch_node(id)
+    db_exec("UPDATE nodes SET last_seen_at = ?, updated_at = ? WHERE id = ?", {
+        os.time(),
+        os.time(),
+        id,
+    })
+end
+
+function M.get_monitors_version()
+    local rows = db_query("SELECT value FROM settings WHERE key = 'monitors_version'")
+    return tonumber(rows[1] and rows[1].value) or 0
+end
+
+function M.bump_monitors_version()
+    db_exec("UPDATE settings SET value = CAST(value AS INTEGER) + 1 WHERE key = 'monitors_version'")
 end
 
 -- =============================================================================

@@ -1,10 +1,13 @@
 local monitors = require("handlers.monitors")
+local cluster = require("handlers.cluster")
 local settings = require("handlers.settings")
 local channels = require("handlers.channels")
-local health = require("handlers.health")
+local health = require("handlers.health")   
 
 get.monitors = monitors.list
 get.monitors_export = monitors.export
+public.get.cluster_version = cluster.version
+public.get.cluster_export = cluster.export
 post.monitors = monitors.create
 post.monitors_import = monitors.import
 put.monitors = monitors.update

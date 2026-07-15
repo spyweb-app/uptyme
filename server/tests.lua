@@ -84,6 +84,10 @@ local function api(path)
     return "http://127.0.0.1:" .. SERVER_PORT .. "/api/v" .. path
 end
 
+local function public_api(path)
+    return "http://127.0.0.1:" .. SERVER_PORT .. "/api/public" .. path
+end
+
 function test_get_monitors_empty()
     db_exec("DELETE FROM monitors")
     local resp = http_get(api("/monitors"))
@@ -387,4 +391,38 @@ end
 function test_health()
     local resp = http_get(api("/health"))
     spyweb.assert_eq(resp.status, 200)
+end
+
+-- =============================================================================
+-- Cluster bootstrap / auth
+-- =============================================================================
+
+function test_cluster_version_requires_auth()
+    local resp = http_get(public_api("/cluster_version"))
+    spyweb.assert_eq(resp.status, 401)
+end
+
+function test_cluster_version_and_export()
+    db_exec("DELETE FROM nodes")
+    db_exec("DELETE FROM monitors")
+    local node = db.create_node({ name = "Checker One", role = "checker", token = "node1.secret" })
+    spyweb.assert_ne(node, nil)
+
+    local before_version = db.get_monitors_version()
+    http_post(api("/monitors"), json_encode({ name = "ClusterMon", url = "https://cluster.example.com" }), { ["Content-Type"] = "application/json" })
+    local after_version = db.get_monitors_version()
+    spyweb.assert_eq(after_version, before_version + 1)
+
+    local headers = { ["X-Pulse-Checker-Token"] = "node1.secret" }
+    local version_resp = http_get(public_api("/cluster_version"), headers)
+    spyweb.assert_eq(version_resp.status, 200)
+    spyweb.assert_eq(tonumber(version_resp.body), after_version)
+
+    local export_resp = http_get(public_api("/cluster_export"), headers)
+    spyweb.assert_eq(export_resp.status, 200)
+    local export_body = json_decode(export_resp.body)
+    spyweb.assert_eq(export_body.success, true)
+    spyweb.assert_eq(#export_body.data, 1)
+    spyweb.assert_eq(export_body.data[1].name, "ClusterMon")
+    spyweb.assert_eq(export_body.data[1].url, "https://cluster.example.com")
 end

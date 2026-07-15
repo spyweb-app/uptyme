@@ -11,5 +11,6 @@ install(require("lib.db.monitors"))
 install(require("lib.db.settings"))
 install(require("lib.db.nodes"))
 install(require("lib.db.channels"))
+install(require("lib.db.consensus_state"))
 
 return M

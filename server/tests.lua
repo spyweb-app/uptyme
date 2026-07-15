@@ -394,6 +394,86 @@ function test_health()
 end
 
 -- =============================================================================
+-- Report / Consensus
+-- =============================================================================
+
+function test_report_requires_auth()
+    db_exec("DELETE FROM nodes")
+    local resp = http_post(public_api("/report/1"), json_encode({ is_up = 1 }), { ["Content-Type"] = "application/json" })
+    spyweb.assert_eq(resp.status, 401)
+end
+
+function test_report_bad_monitor()
+    db_exec("DELETE FROM nodes")
+    db_exec("DELETE FROM monitors")
+    local node = db.create_node({ name = "Checker", role = "checker", token = "check1.secret" })
+    spyweb.assert_ne(node, nil)
+    local headers = { ["Content-Type"] = "application/json", ["X-Pulse-Checker-Token"] = "check1.secret" }
+    local resp = http_post(public_api("/report/999"), json_encode({ is_up = 1 }), headers)
+    spyweb.assert_eq(resp.status, 404)
+end
+
+function test_report_and_consensus_transition()
+    db_exec("DELETE FROM node_reports")
+    db_exec("DELETE FROM cluster_monitor_state")
+    db_exec("DELETE FROM nodes")
+    db_exec("DELETE FROM monitors")
+
+    -- Create central node (automatically by get_or_create_central_node)
+    local central = db.get_or_create_central_node()
+    spyweb.assert_ne(central, nil)
+
+    -- Create a checker node
+    local checker = db.create_node({ name = "Checker", role = "checker", token = "check1.secret" })
+    spyweb.assert_ne(checker, nil)
+
+    -- Create a monitor — insert_monitor now seeds cluster_monitor_state as UP
+    http_post(api("/monitors"), json_encode({ name = "TestMon", url = "https://test.example.com" }), { ["Content-Type"] = "application/json" })
+
+    local monitors = db.list_all()
+    spyweb.assert_eq(#monitors, 1)
+    local m_id = monitors[1].id
+
+    -- Verify initial state is UP
+    local initial_state = db.get_monitor_consensus_state(m_id)
+    spyweb.assert_ne(initial_state, nil)
+    spyweb.assert_eq(initial_state.current_status, "UP")
+
+    -- Update settings to make consensus eager
+    db_exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('consensus_min_nodes', '1')")
+    db_exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('consensus_quorum_pct', '100')")
+
+    -- Central records its own UP report
+    db.upsert_node_report(m_id, central.id, { is_up = 1, status_code = 200, response_time_ms = 50, error_message = "" })
+
+    -- Checker sends DOWN report — triggers UP→DOWN transition
+    local headers = { ["Content-Type"] = "application/json", ["X-Pulse-Checker-Token"] = "check1.secret" }
+    local resp = http_post(public_api("/report/" .. m_id),
+        json_encode({ is_up = 0, status_code = 500, response_time_ms = 1000, error_message = "Internal Server Error" }),
+        headers)
+    spyweb.assert_eq(resp.status, 200)
+    local body = json_decode(resp.body)
+    spyweb.assert_eq(body.success, true)
+    spyweb.assert_eq(body.data.transition, true)
+    spyweb.assert_eq(body.data.status, "DOWN")
+
+    -- Verify cluster_monitor_state reflects the transition
+    local state = db.get_monitor_consensus_state(m_id)
+    spyweb.assert_eq(state.current_status, "DOWN")
+
+    -- Same DOWN report again — should skip evaluation (early return)
+    local resp2 = http_post(public_api("/report/" .. m_id),
+        json_encode({ is_up = 0, status_code = 500, response_time_ms = 1000, error_message = "Internal Server Error" }),
+        headers)
+    spyweb.assert_eq(resp2.status, 200)
+    local body2 = json_decode(resp2.body)
+    spyweb.assert_eq(body2.success, true)
+    spyweb.assert_eq(body2.data.transition, false)
+    spyweb.assert_eq(body2.data.skipped, true)
+    spyweb.assert_eq(body2.data.status, "DOWN")
+end
+
+-- =============================================================================
 -- Cluster bootstrap / auth
 -- =============================================================================
 

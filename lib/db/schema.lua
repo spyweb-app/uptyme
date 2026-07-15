@@ -69,6 +69,8 @@ function M._ensure_settings()
   db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('alert_cooldown_sec', '300')")
   db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('instance_name', 'PULSE')")
   db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('cert_threshold_days', '14')")
+  db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('consensus_min_nodes', '2')")
+  db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('consensus_quorum_pct', '51')")
 end
 
 function M._ensure_notifications()

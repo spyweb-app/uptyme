@@ -1,6 +1,10 @@
 local db = require("lib.db")
-local check = require("lib.check")
+local pipeline = require("lib.check_pipeline")
 local alert = require("alert")
+
+local settings = db.get_settings()
+local role = settings.role or "standalone"
+local strategy = require("lib.role_strategies." .. role)
 
 db.ensure_schema()
 
@@ -25,6 +29,17 @@ function before_fetch(request, ctx)
         cert_last_check = m.cert_last_check,
     }
 
+    if role == "central" then
+        ctx.shared.central_node = db.get_or_create_central_node()
+        if ctx.shared.central_node then
+            db.touch_node(ctx.shared.central_node.id)
+        end
+    elseif role == "checker" then
+        ctx.shared.central_url = settings.central_url
+        ctx.shared.central_token = settings.central_token
+        ctx.shared.node_name = settings.node_name or os.hostname and os.hostname() or "checker"
+    end
+
     return request
 end
 
@@ -32,40 +47,23 @@ function after_fetch(fetch_result, ctx)
     local s = ctx.shared
     if not s.monitor_id then return nil end
 
-    local now = os.time()
-    local response_time_ms = (fetch_result.response and fetch_result.response.time_ms) or 0
+    local result = pipeline.run(fetch_result, s)
+    strategy.after_fetch(s, result.now, result)
 
-    local r = check.classify_status(fetch_result)
-    local is_up, severity, status_code, err_msg = r.is_up, r.severity, r.status_code, r.err or ""
-
-    if is_up == 1 and s.check_value ~= "" then
-        local cc = check.check_content(fetch_result.response and fetch_result.response.body, s.check_value)
-        if cc then
-            is_up, severity, err_msg = 0, "DOWN", cc.err
-        end
-    end
-
-    local new_failures = alert.compute_failures(is_up, severity, s.prev_failures)
-
-    db.insert_check(s.monitor_id, status_code, response_time_ms, is_up, err_msg)
-    db.update_monitor_status(s.monitor_id, is_up, status_code, response_time_ms, new_failures)
-
-    alert.maybe_alert(s, severity, new_failures, now, status_code, err_msg)
-
-    -- Cert check (if enabled and HTTPS)
-    if s.check_cert == 1 then
+    -- Cert check — standalone and central only, skip on checker
+    if s.check_cert == 1 and role ~= "checker" then
         local last = s.cert_last_check
-        if not last or (now - tonumber(last)) >= 86400 then
+        if not last or (result.now - tonumber(last)) >= 86400 then
             local host = s.monitor_url:match("https://([^/]+)")
             if host then
                 local cert, err = tls_probe(host)
                 if cert then
-                    db.update_cert_info(s.monitor_id, cert.not_after, cert.days_left, now)
+                    db.update_cert_info(s.monitor_id, cert.not_after, cert.days_left, result.now)
                     if cert.days_left < s.cert_threshold_days then
                         alert.do_alert(s, "DOWN", "Certificate expires in " .. cert.days_left .. " days (" .. cert.subject .. ")")
                     end
                 else
-                    db.update_cert_info(s.monitor_id, nil, nil, now)
+                    db.update_cert_info(s.monitor_id, nil, nil, result.now)
                     alert.do_alert(s, "DOWN", "TLS probe failed: " .. (err or "unknown"))
                 end
             end

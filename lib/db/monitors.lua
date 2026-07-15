@@ -194,6 +194,13 @@ function M.insert_monitor(entry)
     entry.check_cert == nil and 0 or (entry.check_cert ~= 0 and 1 or 0),
     entry.cert_threshold_days or 14,
   })
+  if ok then
+    local row = db_query("SELECT id FROM monitors WHERE url = ?", { entry.url })
+    if row[1] then
+      db_exec("INSERT OR IGNORE INTO cluster_monitor_state (monitor_id, current_status, last_transition_at, updated_at) VALUES (?, 'UP', ?, ?)",
+        { row[1].id, os.time(), os.time() })
+    end
+  end
   return ok, err
 end
 

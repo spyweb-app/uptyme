@@ -52,4 +52,14 @@ function M.bump_monitors_version()
   db_exec("UPDATE settings SET value = CAST(value AS INTEGER) + 1 WHERE key = 'monitors_version'")
 end
 
+function M.get_consensus_min_nodes()
+  local rows = db_query("SELECT value FROM settings WHERE key = 'consensus_min_nodes'")
+  return tonumber(rows[1] and rows[1].value) or 2
+end
+
+function M.get_consensus_quorum_pct()
+  local rows = db_query("SELECT value FROM settings WHERE key = 'consensus_quorum_pct'")
+  return tonumber(rows[1] and rows[1].value) or 51
+end
+
 return M

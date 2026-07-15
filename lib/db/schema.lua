@@ -6,6 +6,8 @@ function M.ensure_schema()
   M._ensure_settings()
   M._ensure_notifications()
   M._ensure_nodes()
+  M._ensure_node_reports()
+  M._ensure_cluster_monitor_state()
 end
 
 function M._ensure_monitors()
@@ -102,6 +104,34 @@ function M._ensure_nodes()
         active        INTEGER DEFAULT 1,
         created_at    INTEGER DEFAULT (cast(strftime('%s','now') AS INTEGER)),
         updated_at    INTEGER DEFAULT (cast(strftime('%s','now') AS INTEGER))
+    )
+  ]])
+end
+
+function M._ensure_node_reports()
+  db_exec([[
+    CREATE TABLE IF NOT EXISTS node_reports (
+        monitor_id       INTEGER NOT NULL,
+        node_id          INTEGER NOT NULL,
+        is_up            INTEGER NOT NULL,
+        status_code      INTEGER,
+        response_time_ms INTEGER,
+        error_message    TEXT,
+        reported_at      INTEGER NOT NULL,
+        PRIMARY KEY (monitor_id, node_id)
+    )
+  ]])
+end
+
+function M._ensure_cluster_monitor_state()
+  db_exec([[
+    CREATE TABLE IF NOT EXISTS cluster_monitor_state (
+        monitor_id          INTEGER PRIMARY KEY,
+        current_status      TEXT NOT NULL,
+        last_transition_at  INTEGER,
+        last_alerted_status TEXT,
+        last_alerted_at     INTEGER,
+        updated_at          INTEGER NOT NULL
     )
   ]])
 end

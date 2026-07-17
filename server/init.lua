@@ -23,6 +23,10 @@ delete.channels = channels.remove
 
 get.health = health.check
 
+get.nodes = nodes.list
+post.nodes = nodes.create
+put.nodes = nodes.update
+
 public.get.cluster_version = cluster.version
 public.get.cluster_export = cluster.export
 public.post.report = reports.report

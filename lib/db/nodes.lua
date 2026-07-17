@@ -1,5 +1,3 @@
-local sha256 = require("lib.sha256")
-
 local M = {}
 
 function M.get_node_by_prefix(prefix)
@@ -13,28 +11,43 @@ function M.get_node(id)
 end
 
 function M.list_nodes()
-  return db_query("SELECT * FROM nodes ORDER BY created_at DESC")
+  return db_query("SELECT id, name, role, last_seen_at, active, created_at, updated_at FROM nodes ORDER BY created_at DESC")
 end
 
 function M.create_node(data)
-  local token = data.token or ""
-  local prefix, secret = token:match("^([^%.]+)%.(.+)$")
-  if not prefix or not secret then
-    return nil, "invalid token format"
-  end
-
   local ok, err = pcall(db_exec, [[
     INSERT INTO nodes (name, role, token_prefix, token_hash, active)
     VALUES (?, ?, ?, ?, ?)
   ]], {
     data.name,
     data.role or "checker",
-    prefix,
-    sha256.hex(secret),
+    data.token_prefix,
+    data.token_hash,
     data.active == nil and 1 or (data.active ~= 0 and 1 or 0),
   })
   if not ok then return nil, err end
-  return M.get_node_by_prefix(prefix)
+  return M.get_node_by_prefix(data.token_prefix)
+end
+
+function M.update_node(id, data)
+  local sets = {}
+  local params = {}
+  for _, key in ipairs({ "name", "role" }) do
+    if data[key] ~= nil then
+      table.insert(sets, key .. " = ?")
+      table.insert(params, data[key])
+    end
+  end
+  if #sets == 0 then return nil, "no fields to update" end
+  table.insert(params, id)
+  db_exec("UPDATE nodes SET " .. table.concat(sets, ", ") .. ", updated_at = ? WHERE id = ?",
+    { table.unpack(params) })
+  return M.get_node(id)
+end
+
+function M.deactivate_node(id)
+  db_exec("UPDATE nodes SET active = 0, updated_at = ? WHERE id = ?", { os.time(), id })
+  return M.get_node(id)
 end
 
 function M.touch_node(id)

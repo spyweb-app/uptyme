@@ -5,6 +5,17 @@ local M = {}
 
 M.HEADER_KEY = "x-pulse-checker-token"
 
+function M.generate_token()
+    local function hex_bytes(n)
+        local s = ""
+        for i = 1, n do
+            s = s .. string.format("%02x", math.random(0, 255))
+        end
+        return s
+    end
+    return hex_bytes(8) .. "." .. hex_bytes(32)
+end
+
 function M.parse_token(token)
     if not token or token == "" then
         return nil, nil

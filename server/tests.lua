@@ -1,5 +1,6 @@
 local import_export = require("lib.import_export")
 local db = require("lib.db")
+local cluster_auth = require("lib.cluster_auth")
 db.ensure_schema()
 
 -- =============================================================================
@@ -406,9 +407,10 @@ end
 function test_report_bad_monitor()
     db_exec("DELETE FROM nodes")
     db_exec("DELETE FROM monitors")
-    local node = db.create_node({ name = "Checker", role = "checker", token = "check1.secret" })
+    local nprefix, nsecret = cluster_auth.parse_token("check1.secret")
+    local node = db.create_node({ name = "Checker", role = "checker", token_prefix = nprefix, token_hash = cluster_auth.hash_secret(nsecret) })
     spyweb.assert_ne(node, nil)
-    local headers = { ["Content-Type"] = "application/json", ["X-Pulse-Checker-Token"] = "check1.secret" }
+    local headers = { ["Content-Type"] = "application/json", [cluster_auth.HEADER_KEY] = "check1.secret" }
     local resp = http_post(public_api("/report/999"), json_encode({ is_up = 1 }), headers)
     spyweb.assert_eq(resp.status, 404)
 end
@@ -424,7 +426,8 @@ function test_report_and_consensus_transition()
     spyweb.assert_ne(central, nil)
 
     -- Create a checker node
-    local checker = db.create_node({ name = "Checker", role = "checker", token = "check1.secret" })
+    local nprefix, nsecret = cluster_auth.parse_token("check1.secret")
+    local checker = db.create_node({ name = "Checker", role = "checker", token_prefix = nprefix, token_hash = cluster_auth.hash_secret(nsecret) })
     spyweb.assert_ne(checker, nil)
 
     -- Create a monitor — insert_monitor now seeds cluster_monitor_state as UP
@@ -447,7 +450,7 @@ function test_report_and_consensus_transition()
     db.upsert_node_report(m_id, central.id, { is_up = 1, status_code = 200, response_time_ms = 50, error_message = "" })
 
     -- Checker sends DOWN report — triggers UP→DOWN transition
-    local headers = { ["Content-Type"] = "application/json", ["X-Pulse-Checker-Token"] = "check1.secret" }
+    local headers = { ["Content-Type"] = "application/json", [cluster_auth.HEADER_KEY] = "check1.secret" }
     local resp = http_post(public_api("/report/" .. m_id),
         json_encode({ is_up = 0, status_code = 500, response_time_ms = 1000, error_message = "Internal Server Error" }),
         headers)
@@ -485,7 +488,8 @@ end
 function test_cluster_version_and_export()
     db_exec("DELETE FROM nodes")
     db_exec("DELETE FROM monitors")
-    local node = db.create_node({ name = "Checker One", role = "checker", token = "node1.secret" })
+    local nprefix, nsecret = cluster_auth.parse_token("node1.secret")
+    local node = db.create_node({ name = "Checker One", role = "checker", token_prefix = nprefix, token_hash = cluster_auth.hash_secret(nsecret) })
     spyweb.assert_ne(node, nil)
 
     local before_version = db.get_monitors_version()
@@ -493,7 +497,7 @@ function test_cluster_version_and_export()
     local after_version = db.get_monitors_version()
     spyweb.assert_eq(after_version, before_version + 1)
 
-    local headers = { ["X-Pulse-Checker-Token"] = "node1.secret" }
+    local headers = { [cluster_auth.HEADER_KEY] = "node1.secret" }
     local version_resp = http_get(public_api("/cluster_version"), headers)
     spyweb.assert_eq(version_resp.status, 200)
     spyweb.assert_eq(tonumber(version_resp.body), after_version)

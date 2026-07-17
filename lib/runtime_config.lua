@@ -18,27 +18,11 @@ local function load_config()
 end
 
 function M.get()
-    return load_config()
-end
-
-function M.enabled()
-    return load_config().enabled == true
-end
-
-function M.bootstrap_settings()
     local cfg = load_config()
-    if cfg.enabled ~= true then
-        return {}
+    if cfg.enabled == true then
+        return cfg
     end
-
-    local out = {}
-    for _, key in ipairs({ "role", "central_url", "node_name", "sync_interval_sec", "node_liveness_sec" }) do
-        local value = cfg[key]
-        if value ~= nil then
-            out[key] = tostring(value)
-        end
-    end
-    return out
+    return {}
 end
 
 return M

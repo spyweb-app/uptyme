@@ -1,5 +1,3 @@
-local runtime_config = require("lib.runtime_config")
-
 local M = {}
 
 function M.get_settings()
@@ -8,16 +6,6 @@ function M.get_settings()
   for _, row in ipairs(rows) do
     settings[row.key] = row.value
   end
-
-  if runtime_config.enabled() then
-    local bootstrap = runtime_config.bootstrap_settings()
-    for key, value in pairs(bootstrap) do
-      if settings[key] == nil or settings[key] == "" then
-        settings[key] = value
-      end
-    end
-  end
-
   return settings
 end
 

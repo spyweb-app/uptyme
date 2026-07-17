@@ -3,12 +3,7 @@ local sha256 = require("lib.sha256")
 
 local M = {}
 
-local HEADER = "x-pulse-checker-token"
-
-local function get_header(self)
-    local headers = self and self.headers or {}
-    return headers[HEADER] or headers["X-Pulse-Checker-Token"] or headers["X-PULSE-CHECKER-TOKEN"]
-end
+M.HEADER_KEY = "x-pulse-checker-token"
 
 function M.parse_token(token)
     if not token or token == "" then
@@ -26,7 +21,8 @@ function M.hash_secret(secret)
 end
 
 function M.verify(self)
-    local token = get_header(self)
+    local headers = self and self.headers or {}
+    local token = headers[M.HEADER_KEY]
     if not token or token == "" then
         return nil
     end

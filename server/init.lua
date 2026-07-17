@@ -1,6 +1,7 @@
 local monitors = require("handlers.monitors")
 local cluster = require("handlers.cluster")
 local reports = require("handlers.reports")
+local nodes = require("handlers.nodes")
 local settings = require("handlers.settings")
 local channels = require("handlers.channels")
 local health = require("handlers.health")   
@@ -25,3 +26,4 @@ get.health = health.check
 public.get.cluster_version = cluster.version
 public.get.cluster_export = cluster.export
 public.post.report = reports.report
+public.get.node_me = nodes.me

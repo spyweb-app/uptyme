@@ -61,7 +61,6 @@ function M._ensure_settings()
         value TEXT NOT NULL
     )
   ]])
-  db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('role', 'standalone')")
   db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('sync_interval_sec', '10')")
   db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('node_liveness_sec', '90')")
   db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('monitors_version', '0')")

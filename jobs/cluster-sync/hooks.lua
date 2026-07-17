@@ -1,26 +1,25 @@
 local db = require("lib.db")
 local runtime_config = require("lib.runtime_config")
+local cluster_auth = require("lib.cluster_auth")
 
 db.ensure_schema()
 
+local bootstrap_node = require("lib.bootstrap_node")
+bootstrap_node.bootstrap()
+
 function before_fetch(request, ctx)
-    local s = db.get_settings()
-    if s.role ~= "checker" then
-        return nil
-    end
-
     local cfg = runtime_config.get()
-    if cfg.enabled ~= true then
+    if (cfg.role or "standalone") ~= "checker" then
         return nil
     end
 
-    local central_url = s.central_url or cfg.central_url or ""
+    local central_url = cfg.central_url or ""
     local auth_token = cfg.auth_token or ""
     if central_url == "" or auth_token == "" then
         return nil
     end
 
-    local headers = { ["X-Pulse-Checker-Token"] = auth_token }
+    local headers = { [cluster_auth.HEADER_KEY] = auth_token }
     local version_res, err = http_get(central_url .. "/api/public/cluster_version", headers)
     if not version_res then
         log("cluster-sync: version fetch failed: " .. tostring(err))

@@ -1,8 +1,9 @@
 local db = require("lib.db")
 local pipeline = require("lib.check_pipeline")
+local runtime_config = require("lib.runtime_config")
 
-local settings = db.get_settings()
-local role = settings.role or "standalone"
+local cfg = runtime_config.get()
+local role = cfg.role or "standalone"
 local strategy = require("lib.role_strategies." .. role)
 
 db.ensure_schema()
@@ -34,9 +35,9 @@ function before_fetch(request, ctx)
             db.touch_node(ctx.shared.central_node.id)
         end
     elseif role == "checker" then
-        ctx.shared.central_url = settings.central_url
-        ctx.shared.central_token = settings.central_token
-        ctx.shared.node_name = settings.node_name or os.hostname and os.hostname() or "checker"
+        ctx.shared.central_url = cfg.central_url or ""
+        ctx.shared.central_token = cfg.auth_token or ""
+        ctx.shared.node_name = cfg.node_name or "checker"
     end
 
     return request

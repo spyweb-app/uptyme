@@ -1,4 +1,5 @@
 local db = require("lib.db")
+local cluster_auth = require("lib.cluster_auth")
 
 local M = {}
 
@@ -14,7 +15,7 @@ function M.after_fetch(s, now, result)
     }),
     {
       ["Content-Type"] = "application/json",
-      ["X-Pulse-Checker-Token"] = s.central_token,
+      [cluster_auth.HEADER_KEY] = s.central_token,
     })
   if err then
     log("Failed to report to central: " .. tostring(err))

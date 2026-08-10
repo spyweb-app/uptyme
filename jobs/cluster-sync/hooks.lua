@@ -1,50 +1,123 @@
 local db = require("lib.db")
+local central = require("lib.central_client")
 local runtime_config = require("lib.runtime_config")
-local cluster_auth = require("lib.cluster_auth")
+local notifier = require("lib.notifier")
+local logger = require("lib.logger")
 
-db.ensure_schema()
+local function bootstrap()
+    if not runtime_config.is_checker() then return end
+    db.ensure_schema()
 
-local bootstrap_node = require("lib.bootstrap_node")
-bootstrap_node.bootstrap()
-
-function before_fetch(request, ctx)
     local cfg = runtime_config.get()
-    if (cfg.role or "standalone") ~= "checker" then
-        return nil
+    if not cfg.central_url or cfg.central_url == "" then
+        logger.error("central_url not set — checker cannot reach central", "startup.config")
+    end
+    if not cfg.auth_token or cfg.auth_token == "" then
+        logger.error("auth_token not set — checker cannot authenticate", "startup.config")
     end
 
-    local central_url = cfg.central_url or ""
-    local auth_token = cfg.auth_token or ""
-    if central_url == "" or auth_token == "" then
-        return nil
+    local s = db.get_settings()
+    if s.cluster_node_id then return end
+
+    local resp = central.get("/node_me")
+    if not resp then return end
+
+    local data = json_decode(resp.body)
+    if not data or not data.success or not data.data then return end
+
+    db.update_settings({
+        cluster_node_id = tostring(data.data.id),
+        cluster_node_name = data.data.name,
+    })
+    logger.info("bootstrapped as node: " .. data.data.name .. " (id=" .. data.data.id .. ")", "startup")
+end
+
+bootstrap()
+
+local conn_state = { failures = 0, was_down = false }
+
+local function contact_success()
+    conn_state.failures = 0
+    if conn_state.was_down then
+        conn_state.was_down = false
+        return { event = "up" }
+    end
+    return nil
+end
+
+local function contact_failure()
+    conn_state.failures = conn_state.failures + 1
+    local threshold = runtime_config.get().central_alert_failures or 3
+    if conn_state.failures >= threshold and not conn_state.was_down then
+        conn_state.was_down = true
+        return { event = "down" }
+    end
+    return nil
+end
+
+local function emit_connectivity(event)
+    if not event then return end
+    local cfg = runtime_config.get()
+    local ca = cfg.checker_alerts or {}
+    local severity = event.event == "down" and "DOWN" or "UP"
+    local message = severity == "DOWN"
+        and "Central unreachable — " .. (cfg.central_url or "unknown") .. " (after " .. (cfg.central_alert_failures or 3) .. " consecutive failures)"
+        or "Central connection restored — " .. (cfg.central_url or "unknown")
+
+    if event.event == "down" then
+        logger.error(message, "sync.connectivity")
+    elseif event.event == "up" then
+        logger.info(message, "sync.connectivity")
     end
 
-    local headers = { [cluster_auth.HEADER_KEY] = auth_token }
-    local version_res, err = http_get(central_url .. "/api/public/cluster_version", headers)
-    if not version_res then
-        log("cluster-sync: version fetch failed: " .. tostring(err))
-        return nil
+    if ca.desktop ~= false then
+        notify(severity .. ": Central", message, 8000)
     end
+    if ca.channels and #ca.channels > 0 then
+        notifier.dispatch_config(ca.channels, {
+            monitor = "Central", severity = severity,
+            url = cfg.central_url or "", message = message, timestamp = os.time(),
+        })
+    end
+end
+
+local cached_version = 0
+
+function before_fetch()
+    if not runtime_config.is_checker() then return nil end
+    local version_res, err = central.get("/cluster_version")
+
+    local event
+    if version_res then
+        event = contact_success()
+    else
+        event = contact_failure()
+        if conn_state.failures == 1 then
+            logger.warn("central unreachable, first failure — " .. logger.err_msg(err), "sync.connectivity")
+        end
+    end
+    emit_connectivity(event)
+
+    if not version_res then return nil end
 
     local remote_v = tonumber(version_res.body) or 0
-    local local_v = tonumber(global_store_get("cluster_monitors_version") or "0") or 0
-    if remote_v == local_v then
+    if remote_v == cached_version then
         return nil
     end
 
-    local export_res, export_err = http_get(central_url .. "/api/public/cluster_export", headers)
+    local export_res, export_err = central.get("/cluster_export")
     if not export_res then
-        log("cluster-sync: export fetch failed: " .. tostring(export_err))
+        logger.error("export fetch failed: " .. logger.err_msg(export_err), "sync.export")
         return nil
     end
 
     local rows = json_decode(export_res.body)
     if type(rows) ~= "table" then
-        log("cluster-sync: invalid export payload")
+        logger.warn("invalid export payload", "sync.export")
         return nil
     end
 
     db.sync_from_central(rows)
-    global_store_set("cluster_monitors_version", tostring(remote_v))
+    cached_version = remote_v
     return nil
 end

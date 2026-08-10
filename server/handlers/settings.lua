@@ -1,10 +1,13 @@
 local H = require("helpers")
 local db = require("lib.db")
+local runtime_config = require("lib.runtime_config")
 
 local M = {}
 
 function M.get(self)
-    return H.json_response(200, db.get_settings())
+    local s = db.get_settings()
+    s.role = runtime_config.role()
+    return H.json_response(200, s)
 end
 
 function M.update(self)

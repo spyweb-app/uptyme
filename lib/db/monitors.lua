@@ -1,3 +1,6 @@
+local normalize = require("lib.monitor_util").normalize
+local runtime_config = require("lib.runtime_config")
+
 local M = {}
 
 -- Helpers shared by multiple functions in this module
@@ -117,13 +120,11 @@ function M.export_syncable()
 end
 
 function M.get(id)
-  local rows = db_query("SELECT * FROM monitors WHERE id = ?", { id })
-  return rows[1]
+  return db_first("SELECT * FROM monitors WHERE id = ?", { id })
 end
 
 function M.get_by_url(url)
-  local rows = db_query("SELECT * FROM monitors WHERE url = ?", { url })
-  return rows[1]
+  return db_first("SELECT * FROM monitors WHERE url = ?", { url })
 end
 
 function M.get_history(id, before, limit)
@@ -179,24 +180,25 @@ end
 -- Write
 
 function M.insert_monitor(entry)
+  local n = normalize(entry)
   local ok, err = pcall(db_exec, [[
     INSERT OR IGNORE INTO monitors (name, url, method, interval_sec, timeout_ms, check_value, enabled, desktop_notify, check_cert, cert_threshold_days)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   ]], {
     entry.name,
     entry.url,
-    entry.method or "HEAD",
-    entry.interval_sec or 300,
-    entry.timeout_ms or 10000,
-    entry.check_value or "",
-    entry.enabled == nil and 1 or (entry.enabled ~= 0 and 1 or 0),
-    entry.desktop_notify == nil and 0 or (entry.desktop_notify ~= 0 and 1 or 0),
-    entry.check_cert == nil and 0 or (entry.check_cert ~= 0 and 1 or 0),
-    entry.cert_threshold_days or 14,
+    n.method,
+    n.interval_sec,
+    n.timeout_ms,
+    n.check_value,
+    n.enabled,
+    n.desktop_notify,
+    n.check_cert,
+    n.cert_threshold_days,
   })
   if ok then
     local row = db_query("SELECT id FROM monitors WHERE url = ?", { entry.url })
-    if row[1] then
+    if row[1] and runtime_config.is_central() then
       db_exec("INSERT OR IGNORE INTO cluster_monitor_state (monitor_id, current_status, last_transition_at, updated_at) VALUES (?, 'UP', ?, ?)",
         { row[1].id, os.time(), os.time() })
     end
@@ -212,7 +214,8 @@ function M.update_monitor(id, sets, params)
 end
 
 function M.delete_monitor(id)
-  db_exec("DELETE FROM monitors WHERE id = ?", { id })
+  db_exec("DELETE FROM node_reports WHERE monitor_id = ?", { id })
+  db_delete_by_id("monitors", id)
 end
 
 function M.sync_from_central(rows)
@@ -225,19 +228,7 @@ function M.sync_from_central(rows)
     if id and entry.name and entry.url then
       seen[#seen + 1] = id
       local current = M.get(id)
-      local params = {
-        entry.name,
-        entry.url,
-        entry.method or "HEAD",
-        entry.interval_sec or 300,
-        entry.timeout_ms or 10000,
-        entry.check_value or "",
-        entry.enabled == nil and 1 or (entry.enabled ~= 0 and 1 or 0),
-        entry.desktop_notify == nil and 0 or (entry.desktop_notify ~= 0 and 1 or 0),
-        entry.check_cert == nil and 0 or (entry.check_cert ~= 0 and 1 or 0),
-        entry.cert_threshold_days or 14,
-        now,
-      }
+      local n = normalize(entry)
 
       if current then
         db_exec([[
@@ -247,8 +238,9 @@ function M.sync_from_central(rows)
               cert_threshold_days = ?, updated_at = ?
           WHERE id = ?
         ]], {
-          params[1], params[2], params[3], params[4], params[5], params[6],
-          params[7], params[8], params[9], params[10], params[11], id
+          entry.name, entry.url, n.method, n.interval_sec, n.timeout_ms,
+          n.check_value, n.enabled, n.desktop_notify, n.check_cert,
+          n.cert_threshold_days, now, id
         })
       else
         db_exec([[
@@ -258,8 +250,9 @@ function M.sync_from_central(rows)
               created_at, updated_at
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ]], {
-          id, params[1], params[2], params[3], params[4], params[5], params[6],
-          params[7], params[8], params[9], params[10], entry.created_at or now, entry.updated_at or now
+          id, entry.name, entry.url, n.method, n.interval_sec, n.timeout_ms,
+          n.check_value, n.enabled, n.desktop_notify, n.check_cert,
+          n.cert_threshold_days, entry.created_at or now, entry.updated_at or now
         })
       end
     end
@@ -304,10 +297,56 @@ function M.insert_check(monitor_id, status_code, response_time_ms, is_up, error_
     { monitor_id, status_code, response_time_ms, is_up, error_message, now })
 end
 
+function M.insert_check_history_batch(rows)
+  if #rows == 0 then return end
+  local value_groups = {}
+  local params = {}
+  for _, row in ipairs(rows) do
+    table.insert(value_groups, "(?,?,?,?,?,?)")
+    table.insert(params, row.monitor_id)
+    table.insert(params, row.status_code or -1)
+    table.insert(params, row.response_time_ms or -1)
+    table.insert(params, row.is_up ~= nil and (row.is_up ~= 0 and 1 or 0) or 1)
+    table.insert(params, row.error_message or "")
+    table.insert(params, row.checked_at or os.time())
+  end
+  db_exec("INSERT INTO check_history (monitor_id, status_code, response_time_ms, is_up, error_message, checked_at) VALUES " .. table.concat(value_groups, ","), params)
+end
+
 function M.update_monitor_status(monitor_id, is_up, status_code, response_time_ms, consecutive_failures)
   local now = os.time()
   db_exec("UPDATE monitors SET is_up = ?, last_status_code = ?, last_response_time_ms = ?, consecutive_failures = ?, updated_at = ? WHERE id = ?",
     { is_up, status_code, response_time_ms, consecutive_failures, now, monitor_id })
+end
+
+-- Batch-update live status columns for many monitors. Only writes the 5 status
+-- columns (never name/url/config) and only touches rows that still exist, so a
+-- monitor deleted between buffer and flush cannot be resurrected. Chunked to
+-- stay under SQLite's compound-SELECT term limit (the FROM row source is an
+--... UNION ALL ...), which defaults to ~500.
+function M.update_monitor_status_batch(rows)
+  if #rows == 0 then return end
+  local now = os.time()
+  local CHUNK = 400
+  for start = 1, #rows, CHUNK do
+    local finish = math.min(start + CHUNK - 1, #rows)
+    local value_parts = {}
+    local params = {}
+    for i = start, finish do
+      local row = rows[i]
+      table.insert(value_parts, "SELECT ? AS id, ? AS p_up, ? AS p_sc, ? AS p_rt, ? AS p_cf, ? AS p_ts")
+      table.insert(params, row.monitor_id)
+      table.insert(params, row.is_up ~= nil and (row.is_up ~= 0 and 1 or 0) or 1)
+      table.insert(params, row.status_code or -1)
+      table.insert(params, row.response_time_ms or -1)
+      table.insert(params, row.consecutive_failures or 0)
+      table.insert(params, now)
+    end
+    db_exec(
+      "UPDATE monitors AS m SET is_up = v.p_up, last_status_code = v.p_sc, last_response_time_ms = v.p_rt, consecutive_failures = v.p_cf, updated_at = v.p_ts FROM (" ..
+      table.concat(value_parts, " UNION ALL ") ..
+      ") AS v WHERE m.id = v.id", params)
+  end
 end
 
 function M.update_cert_info(monitor_id, not_after, days_left, checked_at)
@@ -318,7 +357,7 @@ end
 -- Retention
 
 function M.cleanup_old_history(days)
-  days = days or M.get_retention_days()
+  days = days or M.get_int("retention_days", 90)
   local cutoff = os.time() - (days * 86400)
   local deleted = db_exec("DELETE FROM check_history WHERE checked_at < ?", { cutoff })
   return deleted

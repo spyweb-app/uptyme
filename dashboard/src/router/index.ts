@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { h } from 'vue'
+import { nodeRole } from '~stores/app'
 
 const layouts: Record<string, () => Promise<any>> = {
   default: () => import('~layouts/Default.vue'),
@@ -31,16 +32,27 @@ const routes = [
   {
     path: '/settings',
     component: () => import('~pages/Settings.vue').then(wrapPage),
+    meta: { checkerHidden: true },
   },
   {
     path: '/notifications',
     component: () => import('~pages/Notifications.vue').then(wrapPage),
+    meta: { checkerHidden: true },
+  },
+  {
+    path: '/nodes',
+    component: () => import('~pages/Nodes.vue').then(wrapPage),
+    meta: { checkerHidden: true },
   },
 ]
 
 const router = createRouter({
   history: createWebHistory(),
   routes,
+})
+
+router.beforeEach((to) => {
+  if (nodeRole.value === 'checker' && to.meta?.checkerHidden) return '/'
 })
 
 router.onError((err) => {

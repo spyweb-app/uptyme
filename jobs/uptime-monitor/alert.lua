@@ -31,7 +31,7 @@ function M.maybe_alert(s, severity, new_failures, now, status_code, err_msg)
         if s.was_up then
             M.do_alert(s, severity, "Status changed from UP to DOWN: " .. err_msg)
         elseif new_failures >= 3 then
-            local cooldown = db.get_alert_cooldown_sec()
+            local cooldown = db.get_int("alert_cooldown_sec", 300)
             local last_alert = store_get("alerted:" .. s.monitor_id)
             if not last_alert or (now - tonumber(last_alert)) >= cooldown then
                 M.do_alert(s, severity, "Consecutive failures: " .. new_failures .. " - " .. err_msg)

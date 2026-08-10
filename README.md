@@ -35,6 +35,7 @@ Try the live demo at **[https://pulse.spyweb.app/](https://pulse.spyweb.app/)**.
 | 📊 **Uptime tracking** | 24h, 7d, 30d percentages with response time history |
 | 🔔 **Notification channels** | Discord, Slack, ntfy, webhooks, email (ON/OFF per channel) |
 | 💻 **System notifications** | Native OS alerts when monitors go down |
+| 🌍 **Multi-node cluster** | Central + checker roles, cross-location consensus to reduce false positives |
 | 📥 **Import/Export** | Bulk import monitors from JSON or CSV files |
 | 🌙 **Dark theme** | Clean, responsive dashboard UI |
 | ⚡ **Dual binary** | CLI for servers, tray app for desktop background runs |
@@ -224,6 +225,14 @@ SPYWEB_THREADS=2 ./spyweb start
 ```
 
 Docs: <a href="https://docs.spyweb.app/job-configuration/toml-config//#behavior" target="_blank" rel="noopener noreferrer">TOML config</a>, <a href="https://docs.spyweb.app/job-configuration/multi-worker/#concurrency-settings" target="_blank" rel="noopener noreferrer">concurrency settings</a>.
+
+## Multi-node / Cluster
+
+Run PULSE from multiple locations and combine results into a single consensus — central only alerts when enough independent nodes agree a target is actually down. Checkers only alert when they lose contact with central.
+
+One **central** node owns monitors and evaluates consensus. One or more **checker** nodes probe targets from different networks and report back.
+
+See [`MULTI_NODE.md`](MULTI_NODE.md) for the full setup guide (central + checker bootstrap, token onboarding, consensus tuning, security).
 
 ## Retention & Storage
 

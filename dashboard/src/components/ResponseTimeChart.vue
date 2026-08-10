@@ -109,12 +109,5 @@ const chartOptions = computed(() => ({
   @apply text-sm font-medium mb-2;
 }
 
-.chart-wrap {
-  width: 100%;
-  height: 160px;
-}
 
-.no-data {
-  @apply text-center text-[var(--text-muted)] text-[13px] p-5;
-}
 </style>

@@ -10,8 +10,9 @@
           </div>
         </div>
         <div class="panel-header-right">
-          <button class="btn-ghost" @click="editMonitor">Edit</button>
-          <button class="btn-danger" @click="confirmDelete = true">Delete</button>
+          <button class="btn-ghost" title="Refresh" @click="refreshDetail"><span class="i-mdi-refresh" /></button>
+          <button v-if="nodeRole !== 'checker'" class="btn-ghost" @click="editMonitor">Edit</button>
+          <button v-if="nodeRole !== 'checker'" class="btn-danger" @click="confirmDelete = true">Delete</button>
           <button class="close-btn" @click="$emit('close')">&times;</button>
         </div>
       </div>
@@ -51,7 +52,7 @@
         <div v-if="monitor.check_cert === 1 && monitor.cert_not_after" class="cert-info">
           <div class="cert-field">
             <span class="cert-label">Not After</span>
-            <span class="cert-value">{{ formatDate(monitor.cert_not_after) }}</span>
+            <span class="cert-value">{{ formatISODate(monitor.cert_not_after) }}</span>
           </div>
           <div class="cert-field">
             <span class="cert-label">Threshold</span>
@@ -60,7 +61,7 @@
         </div>
 
         <div class="charts-section">
-          <UptimeTimeline :monitorId="monitor.id" />
+          <UptimeTimeline :monitorId="monitor.id" ref="timelineRef" />
         </div>
 
         <div class="charts-section">
@@ -69,7 +70,7 @@
 
         <div class="history-section">
           <h3 class="section-title">Recent Checks</h3>
-          <table class="history-table" v-if="monHistory.length > 0">
+          <table class="detail-table" v-if="monHistory.length > 0">
             <thead>
               <tr>
                 <th>Time</th>
@@ -81,7 +82,7 @@
             </thead>
             <tbody>
               <tr v-for="h in monHistory" :key="h.id">
-                <td>{{ formatTime(h.checked_at) }}</td>
+                <td>{{ formatDateTime(h.checked_at) }}</td>
                 <td>
                   <span :class="checkStatusClass(h)">
                     {{ checkStatusLabel(h) }}
@@ -125,10 +126,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { api, type Check } from '~lib/api'
+import { nodeRole } from '~stores/app'
 import { useMonitorStore } from '~stores/monitors'
-import { showNotification, autoRefresh } from '~stores/app'
-import { showAuthModal } from '~stores/auth'
-import { usePoll } from '~composables/usePoll'
+import { showNotification } from '~stores/app'
+import { formatDateTime, formatISODate } from '~lib/dates'
 import StatusBadge from './StatusBadge.vue'
 import UptimeTimeline from './UptimeTimeline.vue'
 import ResponseTimeChart from './ResponseTimeChart.vue'
@@ -205,11 +206,6 @@ function checkStatusLabel(h: Check) {
   return h.is_up ? 'UP' : 'DOWN'
 }
 
-function formatTime(ts: number) {
-  const d = new Date(ts * 1000)
-  return d.toLocaleString()
-}
-
 function certColor(daysLeft: number | null) {
   if (daysLeft === null) return ''
   if (daysLeft > 30) return 'text-green-400'
@@ -217,73 +213,26 @@ function certColor(daysLeft: number | null) {
   return 'text-red-400'
 }
 
-function formatDate(iso: string) {
-  if (!iso) return '-'
-  return new Date(iso).toLocaleDateString()
-}
+const timelineRef = ref<InstanceType<typeof UptimeTimeline> | null>(null)
 
-const pollEnabled = computed(() => autoRefresh.value && !showAuthModal.value)
-usePoll(() => store.fetchHistory(store.selectedMonitorId!, 100), 30_000, pollEnabled)
-
-onMounted(async () => {
+async function refreshDetail() {
   await store.fetchHistory(store.selectedMonitorId!, 100)
   hasMore.value = (store.historyMap[store.selectedMonitorId!]?.length ?? 0) === 100
+  timelineRef.value?.refresh()
+}
+
+onMounted(async () => {
+  await refreshDetail()
 })
 </script>
 
 <style scoped>
-.slide-over-backdrop {
-  @apply fixed inset-0 bg-black/50 z-40;
-}
-
-.slide-panel {
-  @apply fixed top-0 right-0 h-full w-full max-w-[860px] bg-[var(--surface)] border-l border-[var(--border)] z-50 flex flex-col overflow-hidden;
-}
-
-.panel-header {
-  @apply flex items-start justify-between px-6 py-5 border-b border-[var(--border)] gap-3;
-}
-
-.panel-header-left {
-  @apply flex items-start gap-3 min-w-0;
-}
-
-.panel-title {
-  @apply text-lg font-semibold;
-}
-
 .panel-url {
   @apply text-xs text-[var(--text-muted)] break-all;
 }
 
-.panel-header-right {
-  @apply flex items-center gap-2 shrink-0;
-}
-
-.close-btn {
-  @apply text-2xl text-[var(--text-muted)] bg-transparent border-none cursor-pointer p-1 leading-none;
-
-  &:hover { @apply text-[var(--text)]; }
-}
-
-.panel-body {
-  @apply flex-1 overflow-y-auto px-6 py-5;
-}
-
 .stats-row {
   @apply grid grid-cols-3 gap-[10px] mb-6;
-}
-
-.stat-box {
-  @apply bg-[var(--elevated)] border border-[var(--border)] rounded-lg p-3 flex flex-col items-center gap-1;
-}
-
-.stat-box-value {
-  @apply text-lg font-bold tabular-nums;
-}
-
-.stat-box-label {
-  @apply text-[11px] text-[var(--text-muted)] uppercase tracking-[0.5px];
 }
 
 .cert-info {
@@ -304,30 +253,6 @@ onMounted(async () => {
 
 .charts-section {
   @apply mb-6 bg-[var(--elevated)] border border-[var(--border)] rounded-xl p-4;
-}
-
-.section-title {
-  @apply text-sm font-medium mb-3;
-}
-
-.history-table {
-  @apply w-full border-collapse text-[13px];
-
-  & th {
-    @apply text-left px-3 py-2 text-[var(--text-muted)] font-medium text-[11px] uppercase tracking-[0.5px] border-b border-[var(--border)];
-  }
-
-  & td {
-    @apply px-3 py-2 border-b border-[var(--hover)] tabular-nums;
-  }
-}
-
-.error-cell {
-  @apply text-[var(--text-muted)] max-w-[200px] overflow-hidden truncate;
-}
-
-.no-data {
-  @apply text-center text-[var(--text-muted)] text-[13px] p-6;
 }
 
 .load-more {

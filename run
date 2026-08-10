@@ -3,13 +3,17 @@ set -e
 
 cd "$(dirname "$0")"
 
-# Parse --port argument
+# Parse arguments: --port and -q/-qq (default -q)
 PORT_FLAG=""
+QUIET_FLAG="-q"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --port) PORT_FLAG="--port $2"; shift 2 ;;
+    -qq) QUIET_FLAG="-qq" ;;
+    -q) QUIET_FLAG="-q" ;;
     *) echo "Unknown: $1"; exit 1 ;;
   esac
+  shift
 done
 
 # Detect package manager
@@ -45,4 +49,4 @@ cd dashboard && $PKG run build && cd ..
 
 # Start spyweb
 echo "Starting spyweb..."
-./spyweb start $PORT_FLAG
+./spyweb start $PORT_FLAG $QUIET_FLAG

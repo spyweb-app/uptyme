@@ -1,10 +1,19 @@
 local db = require("lib.db")
-local check = require("lib.check")
+local check = require("lib.check_pipeline")
 local alert = require("alert")
+local check_buffer = require("lib.check_buffer")
 
 -- =============================================================================
 -- Helpers
 -- =============================================================================
+
+local function flush_checks()
+    db.insert_check_history_batch(check_buffer.drain_history())
+end
+
+local function flush_status()
+    db.update_monitor_status_batch(check_buffer.drain_status())
+end
 
 function make_monitor(name, url, was_up)
     db.ensure_schema()
@@ -24,6 +33,7 @@ function make_ctx(id, overrides)
             was_up = true,
             prev_failures = 0,
             desktop_notify = 0,
+            central_node = db.get_or_create_central_node(),
         }
     }
     if overrides then
@@ -506,9 +516,13 @@ function test_after_fetch_records_up()
     local result = after_fetch(fetch_result, ctx)
     spyweb.assert_eq(result, nil)
 
+    flush_status()
+
     local monitor = db_query("SELECT * FROM monitors WHERE id = ?", { id })
     spyweb.assert_eq(monitor[1].is_up, 1)
     spyweb.assert_eq(monitor[1].consecutive_failures, 0)
+
+    flush_checks()
 
     local history = db_query("SELECT * FROM check_history WHERE monitor_id = ?", { id })
     spyweb.assert_eq(#history, 1)
@@ -527,9 +541,13 @@ function test_after_fetch_records_down()
     local result = after_fetch(fetch_result, ctx)
     spyweb.assert_eq(result, nil)
 
+    flush_status()
+
     local monitor = db_query("SELECT * FROM monitors WHERE id = ?", { id })
     spyweb.assert_eq(monitor[1].is_up, 0)
     spyweb.assert_eq(monitor[1].consecutive_failures, 1)
+
+    flush_checks()
 
     local history = db_query("SELECT * FROM check_history WHERE monitor_id = ?", { id })
     spyweb.assert_eq(#history, 1)
@@ -548,10 +566,14 @@ function test_after_fetch_403_is_up()
     local result = after_fetch(fetch_result, ctx)
     spyweb.assert_eq(result, nil)
 
+    flush_status()
+
     local monitor = db_query("SELECT * FROM monitors WHERE id = ?", { id })
     spyweb.assert_eq(monitor[1].is_up, 1)
     spyweb.assert_eq(monitor[1].consecutive_failures, 0)
     spyweb.assert_eq(monitor[1].last_status_code, 403)
+
+    flush_checks()
 
     local history = db_query("SELECT * FROM check_history WHERE monitor_id = ?", { id })
     spyweb.assert_eq(#history, 1)
@@ -570,6 +592,8 @@ function test_after_fetch_handles_content_check()
 
     after_fetch(fetch_result, ctx)
 
+    flush_status()
+
     local monitor = db_query("SELECT * FROM monitors WHERE id = ?", { id })
     spyweb.assert_eq(monitor[1].is_up, 1)
 end
@@ -585,6 +609,56 @@ function test_after_fetch_content_check_fails()
 
     after_fetch(fetch_result, ctx)
 
+    flush_status()
+
     local monitor = db_query("SELECT * FROM monitors WHERE id = ?", { id })
     spyweb.assert_eq(monitor[1].is_up, 0)
+end
+
+-- =============================================================================
+-- treat_4xx_as_down — pipeline.run
+-- =============================================================================
+
+function test_run_403_as_down_when_setting_on()
+    db.ensure_schema()
+    db_exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('treat_4xx_as_down', '1')")
+
+    local shared = { check_value = "", prev_failures = 0 }
+    local result = check.run(
+        { ok = true, response = { status = 403, time_ms = 100 } },
+        shared
+    )
+
+    spyweb.assert_eq(result.is_up, 0)
+    spyweb.assert_eq(result.severity, "DOWN")
+    spyweb.assert_eq(result.status_code, 403)
+    spyweb.assert_eq(result.new_failures, 1)
+end
+
+function test_run_500_down_regardless_of_setting()
+    db.ensure_schema()
+    db_exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('treat_4xx_as_down', '1')")
+
+    local shared = { check_value = "", prev_failures = 0 }
+    local result = check.run(
+        { ok = true, response = { status = 500, time_ms = 100 } },
+        shared
+    )
+
+    spyweb.assert_eq(result.is_up, 0)
+    spyweb.assert_eq(result.severity, "DOWN")
+end
+
+function test_run_200_up_regardless_of_setting()
+    db.ensure_schema()
+    db_exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('treat_4xx_as_down', '1')")
+
+    local shared = { check_value = "", prev_failures = 0 }
+    local result = check.run(
+        { ok = true, response = { status = 200, time_ms = 100 } },
+        shared
+    )
+
+    spyweb.assert_eq(result.is_up, 1)
+    spyweb.assert_eq(result.severity, "UP")
 end

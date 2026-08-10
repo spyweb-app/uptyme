@@ -214,56 +214,11 @@ async function save() {
 </script>
 
 <style scoped>
-.modal-header {
-  @apply flex items-center justify-between px-6 py-5 border-b border-[var(--border)];
-}
-
-.modal-title {
-  @apply text-lg font-semibold;
-}
-
-.close-btn {
-  @apply text-2xl text-[var(--text-muted)] bg-transparent border-none cursor-pointer leading-none;
-
-  &:hover { @apply text-[var(--text)]; }
-}
-
-.modal-body {
-  @apply p-6;
-}
-
-.field {
-  @apply mb-4;
-}
-
-.field-row {
-  @apply flex gap-3;
-}
-
 .config-fields {
   @apply p-4 mb-4 rounded-lg;
   background: rgba(255,255,255,0.02);
   border: 1px solid var(--border);
 }
 
-.modal-actions {
-  @apply flex justify-end gap-2 mt-6;
-}
 
-.save-error {
-  @apply mt-3 px-3 py-2 text-[var(--down)] rounded-lg text-[13px];
-  background: rgba(239, 68, 68, 0.1);
-}
-
-.checkbox-label {
-  @apply flex items-center gap-2 text-sm cursor-pointer select-none;
-}
-
-.field-error {
-  @apply block text-[11px] text-[var(--down)] mt-1;
-}
-
-.input.invalid {
-  border-color: var(--down);
-}
 </style>

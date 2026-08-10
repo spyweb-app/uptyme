@@ -3,8 +3,8 @@ local pipeline = require("lib.check_pipeline")
 local runtime_config = require("lib.runtime_config")
 
 local cfg = runtime_config.get()
-local role = cfg.role or "standalone"
-local strategy = require("lib.role_strategies." .. role)
+local role = runtime_config.role()
+local role_strategies = require("lib.role_strategies")
 
 db.ensure_schema()
 
@@ -48,6 +48,6 @@ function after_fetch(fetch_result, ctx)
     if not s.monitor_id then return nil end
 
     local result = pipeline.run(fetch_result, s)
-    strategy.after_fetch(s, result.now, result)
+    role_strategies.after_fetch(role, s, result.now, result)
     return nil
 end

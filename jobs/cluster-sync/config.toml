@@ -1,8 +1,6 @@
 name = "Cluster Sync"
 enabled = true
 interval = 10
-debug = false
 url = "https://placeholder.local"
 selector = "body"
 fields = ["dummy:body"]
-workers = 1

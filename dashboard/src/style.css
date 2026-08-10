@@ -124,14 +124,202 @@ h1 {
   @apply bg-[var(--surface)] rounded-xl border border-[var(--border)] shadow-2xl w-full max-w-lg mx-4;
 }
 
-.slide-panel {
-  @apply fixed top-0 right-0 h-full w-full max-w-[640px] bg-[var(--surface)] border-l border-[var(--border)] shadow-2xl z-50 overflow-y-auto;
-}
-
 .input {
   @apply w-full bg-[var(--input)] border border-[var(--border)] rounded-lg px-3 py-2 text-[var(--text)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)];
 }
 
 .label {
   @apply block text-sm font-medium text-[var(--text-secondary)] mb-1;
+}
+
+/* ─── Page scaffold ─── */
+.topbar {
+  @apply flex items-center justify-between px-7 py-5 border-b border-[var(--border)] bg-[var(--base)];
+}
+
+.title {
+  @apply text-[22px] font-semibold tracking-[-0.3px];
+}
+
+.content {
+  @apply flex-1 overflow-y-auto px-7 py-6;
+}
+
+/* ─── Modal chrome ─── */
+.modal-header {
+  @apply flex items-center justify-between px-6 py-5 border-b border-[var(--border)];
+}
+
+.modal-title {
+  @apply text-lg font-semibold;
+}
+
+.modal-body {
+  @apply p-6;
+}
+
+.modal-actions {
+  @apply flex justify-end gap-2 mt-6;
+}
+
+.close-btn {
+  @apply text-2xl text-[var(--text-muted)] bg-transparent border-none cursor-pointer leading-none;
+
+  &:hover { @apply text-[var(--text)]; }
+}
+
+/* ─── Form primitives ─── */
+.field {
+  @apply mb-4;
+}
+
+.field-row {
+  @apply flex gap-3;
+}
+
+.field-hint {
+  @apply block text-[11px] text-[var(--text-muted)] mt-1;
+}
+
+.field-error {
+  @apply block text-[11px] text-[var(--down)] mt-1;
+}
+
+.input.invalid {
+  border-color: var(--down);
+}
+
+.checkbox-label {
+  @apply flex items-center gap-2 text-sm cursor-pointer select-none;
+}
+
+.save-error {
+  @apply mt-3 px-3 py-2 text-[var(--down)] rounded-lg text-[13px];
+  background: rgba(239, 68, 68, 0.1);
+}
+
+/* ─── Toggle switch ─── */
+.toggle {
+  @apply relative inline-block w-[36px] h-[20px] shrink-0;
+}
+
+.toggle input {
+  @apply opacity-0 w-0 h-0;
+}
+
+.toggle-slider {
+  @apply absolute cursor-pointer inset-0 bg-[var(--border)] rounded-[20px] transition-colors duration-200;
+
+  &::before {
+    content: '';
+    @apply absolute w-[14px] h-[14px] left-[3px] bottom-[3px] bg-white rounded-full transition-transform duration-200;
+  }
+}
+
+.toggle input:checked + .toggle-slider {
+  @apply bg-[var(--up)];
+}
+
+.toggle input:checked + .toggle-slider::before {
+  transform: translateX(16px);
+}
+
+/* ─── Slide-over chrome ─── */
+.slide-panel {
+  @apply fixed top-0 right-0 h-full w-full max-w-[860px] bg-[var(--surface)] border-l border-[var(--border)] shadow-2xl z-50 flex flex-col overflow-hidden;
+}
+
+.slide-over-backdrop {
+  @apply fixed inset-0 bg-black/50 z-40;
+}
+
+.panel-header {
+  @apply flex items-start justify-between px-6 py-5 border-b border-[var(--border)] gap-3;
+}
+
+.panel-header-left {
+  @apply flex items-start gap-3 min-w-0;
+}
+
+.panel-header-right {
+  @apply flex items-center gap-2 shrink-0;
+}
+
+.panel-title {
+  @apply text-lg font-semibold cursor-pointer;
+}
+
+.panel-body {
+  @apply flex-1 overflow-y-auto px-6 py-5;
+}
+
+/* ─── Stats / sections ─── */
+.stats-row {
+  @apply grid grid-cols-3 gap-[10px] mb-6;
+}
+
+.stat-box {
+  @apply bg-[var(--elevated)] border border-[var(--border)] rounded-lg p-3 flex flex-col items-center gap-1;
+}
+
+.stat-box-value {
+  @apply text-lg font-bold tabular-nums;
+}
+
+.stat-box-label {
+  @apply text-[11px] text-[var(--text-muted)] uppercase tracking-[0.5px];
+}
+
+.section-title {
+  @apply text-sm font-medium mb-3;
+}
+
+/* ─── Tables ─── */
+.detail-table {
+  @apply w-full border-collapse text-[13px];
+
+  & th {
+    @apply text-left px-3 py-2 text-[var(--text-muted)] font-medium text-[11px] uppercase tracking-[0.5px] border-b border-[var(--border)];
+  }
+
+  & td {
+    @apply px-3 py-2 border-b border-[var(--hover)] tabular-nums;
+  }
+}
+
+.error-cell {
+  @apply text-[var(--text-muted)] max-w-[200px] overflow-hidden truncate;
+}
+
+/* ─── Misc ─── */
+.no-data {
+  @apply text-center text-[var(--text-muted)] text-[13px] p-5;
+}
+
+.chart-wrap {
+  width: 100%;
+  height: 160px;
+}
+
+.token-desc {
+  @apply text-[13px] text-[var(--text-muted)] mb-3;
+}
+
+.token-display {
+  @apply bg-[var(--base)] border border-[var(--border)] rounded-lg p-3 cursor-pointer;
+
+  &:hover { @apply border-[var(--accent)]; }
+
+  & code {
+    @apply text-xs;
+    word-break: break-all;
+    font-family: 'Menlo', 'Monaco', monospace;
+    line-height: 1.5;
+  }
+}
+
+.copy-hint {
+  @apply block text-[11px] text-[var(--text-muted)] mt-1.5;
+
+  &.copied { @apply text-[var(--up)]; }
 }

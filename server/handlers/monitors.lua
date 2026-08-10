@@ -1,12 +1,12 @@
 local H = require("helpers")
 local db = require("lib.db")
 local import_export = require("lib.import_export")
+local runtime_config = require("lib.runtime_config")
 
 local M = {}
 
 local function reject_checker_mutation()
-    local s = db.get_settings()
-    if s.role == "checker" then
+    if runtime_config.is_checker() then
         return H.json_response(403, nil, "This node is a checker — monitors are managed on the central node")
     end
     return nil
@@ -156,16 +156,8 @@ function M.update(self)
         return H.json_response(400, nil, "Invalid JSON body")
     end
 
-    local sets = {}
-    local params = {}
-
     local updatable = { "name", "url", "method", "interval_sec", "timeout_ms", "check_value", "enabled", "desktop_notify", "check_cert", "cert_threshold_days" }
-    for _, field in ipairs(updatable) do
-        if data[field] ~= nil then
-            table.insert(sets, field .. " = ?")
-            table.insert(params, data[field])
-        end
-    end
+    local sets, params = db.build_set_clause(data, updatable)
 
     if #sets == 0 then
         return H.json_response(400, nil, "No fields to update")

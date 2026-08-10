@@ -8,7 +8,7 @@
         <p class="confirm-message">{{ message }}</p>
         <div class="modal-actions">
           <button class="btn-ghost" @click="$emit('cancel')">Cancel</button>
-          <button class="btn-danger" @click="$emit('confirm')">Delete</button>
+          <button class="btn-danger" @click="$emit('confirm')">{{ confirmText }}</button>
         </div>
       </div>
     </div>
@@ -16,10 +16,13 @@
 </template>
 
 <script setup lang="ts">
-defineProps<{
+const _props = withDefaults(defineProps<{
   title: string
   message: string
-}>()
+  confirmText?: string
+}>(), {
+  confirmText: 'Delete',
+})
 
 defineEmits<{
   confirm: []
@@ -28,23 +31,7 @@ defineEmits<{
 </script>
 
 <style scoped>
-.modal-header {
-  @apply px-6 py-5 border-b border-[var(--border)];
-}
-
-.modal-title {
-  @apply text-lg font-semibold;
-}
-
-.modal-body {
-  @apply p-6;
-}
-
 .confirm-message {
   @apply text-[var(--text-secondary)] text-sm leading-normal;
-}
-
-.modal-actions {
-  @apply flex justify-end gap-2 mt-6;
 }
 </style>

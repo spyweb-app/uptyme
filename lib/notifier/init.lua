@@ -1,4 +1,5 @@
 local db = require("lib.db")
+local logger = require("lib.logger")
 
 local services = {
     webhook = require("lib.notifier.webhook"),
@@ -16,7 +17,7 @@ function dispatch(monitor_id, alert)
         if svc then
             local ok, err = pcall(svc.send, cfg, alert)
             if not ok then
-                log("Notification channel " .. ch.id .. " (" .. ch.type .. ") failed: " .. tostring(err))
+                logger.warn("channel " .. ch.id .. " (" .. ch.type .. ") failed: " .. logger.err_msg(err), "channel.send")
             end
         end
     end
@@ -33,4 +34,17 @@ function dispatch_to_channel(channel_id, alert)
     return true, resp
 end
 
-return { dispatch = dispatch, dispatch_to_channel = dispatch_to_channel }
+function dispatch_config(channels, alert)
+    for _, ch in ipairs(channels or {}) do
+        local cfg = type(ch.config) == "string" and (json_decode(ch.config) or {}) or (ch.config or {})
+        local svc = services[ch.type]
+        if svc then
+            local ok, err = pcall(svc.send, cfg, alert)
+            if not ok then
+                logger.warn("channel (" .. ch.type .. ") failed: " .. logger.err_msg(err), "channel.send")
+            end
+        end
+    end
+end
+
+return { dispatch = dispatch, dispatch_to_channel = dispatch_to_channel, dispatch_config = dispatch_config }

@@ -34,8 +34,40 @@
         <span class="help-text">Default threshold for certificate expiry alerts. Can be overridden per monitor.</span>
       </div>
 
+      <div class="field">
+        <label class="checkbox-label">
+          <input type="checkbox" v-model="treat4xx" />
+          <span class="i-mdi-shield-alert" />
+          Treat 4xx responses as DOWN
+        </label>
+        <span class="help-text">When enabled, 4xx (blocked) status codes count as down. Default is to treat 4xx as up (blocked).</span>
+      </div>
+
       <button class="btn-primary mt-4" @click="saveSettings">Save</button>
     </div>
+
+    <div v-if="nodeRole === 'central'" class="settings-card mt-4">
+      <h2 class="card-title">Cluster</h2>
+      <div class="field-row">
+        <div class="field flex-1">
+          <label class="label">Consensus Min Nodes</label>
+          <input class="input" v-model.number="consensusMinNodes" type="number" min="1" />
+          <span class="help-text">Minimum live nodes required before consensus is evaluated.</span>
+        </div>
+        <div class="field flex-1">
+          <label class="label">Consensus Quorum (%)</label>
+          <input class="input" v-model.number="consensusQuorumPct" type="number" min="1" max="100" />
+          <span class="help-text">Percentage of live nodes that must agree.</span>
+        </div>
+      </div>
+      <div class="field">
+        <label class="label">Node Liveness (sec)</label>
+        <input class="input" v-model.number="nodeLivenessSec" type="number" min="10" />
+        <span class="help-text">How long without contact before a node is considered dead and excluded from consensus.</span>
+      </div>
+      <button class="btn-primary mt-4" @click="saveSettings">Save</button>
+    </div>
+
   </div>
 </template>
 
@@ -45,13 +77,17 @@ defineOptions({ layout: 'default' })
 import { ref, reactive, onMounted, watch } from 'vue'
 import { api } from '~lib/api'
 import { keyVersion } from '~stores/auth'
+import { nodeRole, showNotification } from '~stores/app'
 import { isNonEmpty } from '~lib/validators'
-import { showNotification } from '~stores/app'
 
 const instanceName = ref('')
 const retentionDays = ref(90)
 const cooldownSec = ref(300)
 const certThresholdDays = ref(14)
+const treat4xx = ref(false)
+const nodeLivenessSec = ref(90)
+const consensusMinNodes = ref(2)
+const consensusQuorumPct = ref(51)
 
 const errors = reactive<Record<string, string>>({})
 
@@ -70,6 +106,10 @@ async function loadSettings() {
     retentionDays.value = parseInt(s.retention_days) || 90
     cooldownSec.value = parseInt(s.alert_cooldown_sec) || 300
     certThresholdDays.value = parseInt(s.cert_threshold_days) || 14
+    treat4xx.value = s.treat_4xx_as_down === '1'
+    nodeLivenessSec.value = parseInt(s.node_liveness_sec) || 90
+    consensusMinNodes.value = parseInt(s.consensus_min_nodes) || 2
+    consensusQuorumPct.value = parseInt(s.consensus_quorum_pct) || 51
   } catch (e: any) {
     console.error('Failed to load settings:', e.message)
   }
@@ -91,13 +131,23 @@ function validate(): boolean {
 
 async function saveSettings() {
   if (!validate()) return
+
+  const data: Record<string, string> = {
+    instance_name: instanceName.value,
+    retention_days: String(retentionDays.value),
+    alert_cooldown_sec: String(cooldownSec.value),
+    cert_threshold_days: String(certThresholdDays.value),
+    treat_4xx_as_down: treat4xx.value ? '1' : '0',
+  }
+
+  if (nodeRole.value === 'central') {
+    data.consensus_min_nodes = String(consensusMinNodes.value)
+    data.consensus_quorum_pct = String(consensusQuorumPct.value)
+    data.node_liveness_sec = String(nodeLivenessSec.value)
+  }
+
   try {
-    await api.updateSettings({
-      instance_name: instanceName.value,
-      retention_days: String(retentionDays.value),
-      alert_cooldown_sec: String(cooldownSec.value),
-      cert_threshold_days: String(certThresholdDays.value),
-    })
+    await api.updateSettings(data)
     showNotification('Settings saved', 'success')
   } catch (e: any) {
     showNotification(e.message || 'Failed to save settings', 'error')
@@ -110,39 +160,16 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.topbar {
-  @apply flex items-center justify-between px-7 py-5 border-b border-[var(--border)] bg-[var(--base)];
-}
-
-.title {
-  @apply text-[22px] font-semibold tracking-[-0.3px];
-}
-
-.content {
-  @apply flex-1 overflow-y-auto px-7 py-6;
-}
-
 .settings-card {
   @apply bg-[var(--surface)] border border-[var(--border)] rounded-xl p-6 max-w-[480px];
 }
 
-.field {
-  @apply mb-4;
-}
-
-.field-row {
-  @apply flex gap-3;
+.card-title {
+  @apply text-base font-semibold mb-4;
 }
 
 .help-text {
   @apply text-xs text-[var(--text-muted)] mt-1.5;
 }
 
-.field-error {
-  @apply block text-[11px] text-[var(--down)] mt-1;
-}
-
-.input.invalid {
-  border-color: var(--down);
-}
 </style>

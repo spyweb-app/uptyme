@@ -26,3 +26,6 @@ Thumbs.db
 
 .luarc.json
 spyweb-types.lua
+config.lua
+
+*.log

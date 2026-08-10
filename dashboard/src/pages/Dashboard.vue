@@ -5,35 +5,37 @@
       Monitors
     </h1>
     <div class="topbar-actions">
-      <div class="btn-group">
-        <button class="btn-secondary" @click="showExport = !showExport">
-          <span class="i-mdi-download mr-1" />
-          Export
-        </button>
-        <div v-if="showExport" class="dropdown" @click.stop>
-          <button class="dropdown-item" @click="doExport('json')">
-            <span class="i-mdi-code-json mr-1" />JSON
+      <template v-if="!isChecker">
+        <div class="btn-group">
+          <button class="btn-secondary" @click="showExport = !showExport">
+            <span class="i-mdi-download mr-1" />
+            Export
           </button>
-          <button class="dropdown-item" @click="doExport('csv')">
-            <span class="i-mdi-file-delimited-outline mr-1" />CSV
-          </button>
+          <div v-if="showExport" class="dropdown" @click.stop>
+            <button class="dropdown-item" @click="doExport('json')">
+              <span class="i-mdi-code-json mr-1" />JSON
+            </button>
+            <button class="dropdown-item" @click="doExport('csv')">
+              <span class="i-mdi-file-delimited-outline mr-1" />CSV
+            </button>
+          </div>
         </div>
-      </div>
-      <button class="btn-secondary" @click="importInput?.click()">
-        <span class="i-mdi-upload mr-1" />
-        Import
-      </button>
-      <input
-        ref="importInput"
-        type="file"
-        accept=".json,.csv"
-        class="hidden-input"
-        @change="doImport"
-      />
-      <button class="btn-primary" @click="openAddForm">
-        <span class="i-mdi-plus mr-1" />
-        Add Monitor
-      </button>
+        <button class="btn-secondary" @click="importInput?.click()">
+          <span class="i-mdi-upload mr-1" />
+          Import
+        </button>
+        <input
+          ref="importInput"
+          type="file"
+          accept=".json,.csv"
+          class="hidden-input"
+          @change="doImport"
+        />
+        <button class="btn-primary" @click="openAddForm">
+          <span class="i-mdi-plus mr-1" />
+          Add Monitor
+        </button>
+      </template>
     </div>
   </header>
 
@@ -43,14 +45,8 @@
       <input v-model="q" placeholder="Search monitors..." @input="onSearchInput" />
     </div>
     <div class="toolbar-right">
-      <button
-        class="poll-toggle"
-        :class="{ active: autoRefresh }"
-        :title="autoRefresh ? 'Auto-refresh on' : 'Auto-refresh off'"
-        @click="autoRefresh = !autoRefresh"
-      >
-        <span v-if="autoRefresh" class="i-mdi-sync" />
-        <span v-else class="i-mdi-sync-off" />
+      <button class="poll-toggle" title="Refresh" @click="onRefresh">
+        <span class="i-mdi-refresh" />
       </button>
       <span class="monitor-count">
         {{ store.total }} monitor{{ store.total !== 1 ? 's' : '' }}
@@ -86,6 +82,7 @@
           v-for="m in store.monitors"
           :key="m.id"
           :monitor="m"
+          :readonly="isChecker"
           @click="selectMonitor(m)"
           />
         </div>
@@ -93,8 +90,9 @@
           <div class="empty-icon">&#9670;</div>
           <template v-if="q === '' && enabledFilter < 0">
             <h2>No monitors yet</h2>
-            <p>Add your first URL or import from a file.</p>
-            <div class="flex gap-3 mt-4">
+            <p v-if="!isChecker">Add your first URL or import from a file.</p>
+            <p v-else>No monitors synced from central yet.</p>
+            <div v-if="!isChecker" class="flex gap-3 mt-4">
               <button class="btn-primary" @click="openAddForm">+ Add Monitor</button>
               <button class="btn-secondary" @click="importInput?.click()">Import</button>
             </div>
@@ -151,15 +149,13 @@ import LoadingOverlay from '~com/LoadingOverlay.vue'
 import MonitorCard from '~com/MonitorCard.vue'
 import MonitorDetail from '~com/MonitorDetail.vue'
 import MonitorForm from '~com/MonitorForm.vue'
-import { showNotification, autoRefresh } from '~stores/app'
+import { showNotification, nodeRole } from '~stores/app'
 
-import { keyVersion, showAuthModal } from '~stores/auth'
-import { usePoll } from '~composables/usePoll'
+import { keyVersion } from '~stores/auth'
 
 const store = useMonitorStore()
 
-const pollEnabled = computed(() => autoRefresh.value && !showAuthModal.value)
-usePoll(loadMonitors, 30_000, pollEnabled)
+const isChecker = computed(() => nodeRole.value === 'checker')
 
 const showForm = ref(false)
 const editingMonitor = ref<Monitor | null>(null)
@@ -184,6 +180,10 @@ async function loadMonitors() {
     q: q.value,
     enabled: enabledFilter.value >= 0 ? enabledFilter.value : undefined,
   })
+}
+
+function onRefresh() {
+  loadMonitors()
 }
 
 function onSearchInput() {
@@ -237,6 +237,7 @@ function openAddForm() {
 }
 
 function selectMonitor(m: Monitor) {
+  if (isChecker.value) return
   store.selectedMonitorId = m.id
 }
 
@@ -300,20 +301,8 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.topbar {
-  @apply flex items-center justify-between px-7 py-5 border-b border-[var(--border)] bg-[var(--base)];
-}
-
-.title {
-  @apply text-[22px] font-semibold tracking-[-0.3px];
-}
-
 .topbar-actions {
   @apply flex items-center gap-4;
-}
-
-.content {
-  @apply flex-1 overflow-y-auto px-7 py-6;
 }
 
 .empty {

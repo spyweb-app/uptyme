@@ -1,8 +1,8 @@
 <template>
-  <div class="monitor-card">
+  <div class="monitor-card" :class="{ readonly }">
     <div class="card-left">
       <span class="status-dot" :class="dotColor" />
-      <label class="toggle" @click.stop>
+      <label class="toggle" @click.stop v-if="!readonly">
         <input type="checkbox" :checked="monitor.enabled === 1" @change="toggleEnabled" />
         <span class="toggle-slider"></span>
       </label>
@@ -38,7 +38,7 @@
         <span class="stat-label">Interval</span>
       </div>
       <StatusBadge :isUp="monitor.enabled === 0 ? undefined : monitor.is_up" :statusCode="monitor.enabled === 0 ? undefined : monitor.last_status_code" />
-      <div class="card-arrow">&#8250;</div>
+      <div class="card-arrow" v-if="!readonly">&#8250;</div>
     </div>
   </div>
 </template>
@@ -52,6 +52,7 @@ import StatusBadge from './StatusBadge.vue'
 
 const props = defineProps<{
   monitor: Monitor
+  readonly?: boolean
 }>()
 
 const store = useMonitorStore()
@@ -92,6 +93,11 @@ async function toggleEnabled() {
   @apply flex items-center justify-between bg-[var(--surface)] border border-[var(--border)] rounded-xl px-[18px] py-[14px] cursor-pointer transition-all duration-150;
 
   &:hover { @apply border-[var(--border-active)] bg-[var(--elevated)]; }
+
+  &.readonly {
+    @apply cursor-default;
+    &:hover { @apply border-[var(--border)] bg-[var(--surface)]; }
+  }
 }
 
 .card-left {

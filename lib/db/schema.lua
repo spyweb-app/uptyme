@@ -61,7 +61,6 @@ function M._ensure_settings()
         value TEXT NOT NULL
     )
   ]])
-  db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('sync_interval_sec', '10')")
   db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('node_liveness_sec', '90')")
   db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('monitors_version', '0')")
   db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('retention_days', '90')")
@@ -70,6 +69,7 @@ function M._ensure_settings()
   db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('cert_threshold_days', '14')")
   db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('consensus_min_nodes', '2')")
   db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('consensus_quorum_pct', '51')")
+  db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('treat_4xx_as_down', '0')")
 end
 
 function M._ensure_notifications()
@@ -98,6 +98,7 @@ function M._ensure_nodes()
     CREATE TABLE IF NOT EXISTS nodes (
         id            INTEGER PRIMARY KEY AUTOINCREMENT,
         name          TEXT NOT NULL,
+        local_name    TEXT,
         role          TEXT NOT NULL DEFAULT 'checker',
         token_prefix  TEXT NOT NULL UNIQUE,
         token_hash    TEXT NOT NULL,

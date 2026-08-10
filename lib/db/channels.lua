@@ -5,8 +5,7 @@ function M.list_channels()
 end
 
 function M.get_channel(id)
-  local rows = db_query("SELECT * FROM notification_channels WHERE id = ?", { id })
-  return rows[1]
+  return db_first("SELECT * FROM notification_channels WHERE id = ?", { id })
 end
 
 function M.create_channel(data)
@@ -17,20 +16,11 @@ function M.create_channel(data)
     data.enabled == nil and 1 or (data.enabled ~= 0 and 1 or 0)
   })
   if not ok then return nil, err end
-  local rows = db_query("SELECT * FROM notification_channels WHERE id = last_insert_rowid()")
-  return rows[1]
+  return db_first("SELECT * FROM notification_channels WHERE id = last_insert_rowid()")
 end
 
 function M.update_channel(id, data)
-  local sets = {}
-  local params = {}
-  local updatable = { "name", "type", "config", "enabled" }
-  for _, field in ipairs(updatable) do
-    if data[field] ~= nil then
-      table.insert(sets, field .. " = ?")
-      table.insert(params, data[field])
-    end
-  end
+  local sets, params = db_build_set_clause(data, { "name", "type", "config", "enabled" })
   if #sets == 0 then return M.get_channel(id) end
   table.insert(params, id)
   db_exec("UPDATE notification_channels SET " .. table.concat(sets, ", ") .. " WHERE id = ?", params)
@@ -38,7 +28,7 @@ function M.update_channel(id, data)
 end
 
 function M.delete_channel(id)
-  db_exec("DELETE FROM notification_channels WHERE id = ?", { id })
+  db_delete_by_id("notification_channels", id)
 end
 
 function M.get_monitor_channel_ids(monitor_id)

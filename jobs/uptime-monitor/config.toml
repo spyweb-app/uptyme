@@ -1,7 +1,6 @@
 name = "Uptime Monitor"
 enabled = true
 interval = 60
-debug = false
 url = "https://placeholder.local"
 selector = "body"
 fields = ["dummy:body"]

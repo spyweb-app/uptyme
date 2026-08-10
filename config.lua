@@ -11,25 +11,37 @@
 -- Replace the placeholder values before first start.
 
 return {
-    -- Leave disabled until you explicitly want the bootstrap file to take effect.
-    enabled = false,
+    -- Activate cluster mode. When false, the node runs standalone and only `logging` applies.
+    -- Role ("central" or "checker") only takes effect when multi_node is true.
+    multi_node = true,
 
-    role = "checker",
+    role = "central", -- "central" or "checker"
 
     -- Human-readable name for this checker node.
-    node_name = "checker-PLACEHOLDER",
+    --node_name = "checker-PLACEHOLDER",
 
     -- Central instance URL.
-    central_url = "https://central.example.com",
+    --central_url = "https://central.example.com",
 
     -- Read the shared secret from an environment variable, not from disk.
-    auth_token = env_get("PULSE_CENTRAL_TOKEN"),
+    --auth_token = env_get("PULSE_CENTRAL_TOKEN"),
 
-    -- How often the checker polls central for monitor definition changes.
-    sync_interval_sec = 10,
+    -- Consecutive failed sync polls before "central unreachable" alert fires.
+    central_alert_failures = 3,
 
-    -- How long a checker can go without successful central contact before it
-    -- emits a local connectivity alert.
-    node_liveness_sec = 90,
+    -- Checker connectivity alert options.
+    checker_alerts = {
+      desktop = true,
+      --channels = {
+      --  { type = "ntfy",    config = { url = "https://ntfy.sh", topic = "pulse-checker" } },
+      --  { type = "webhook", config = { url = "https://..." } },
+      --},
+    },
+
+    -- Logging configuration.
+    -- level:  debug | info | warn | error | none  (default: error)
+    -- output: file | terminal | both | none        (default: file)
+    -- throttle: N = at most one log per N same-category occurrences; 0 = off (default: 6)
+    logging = { level = "error", output = "file", throttle = 6 },
 
 }

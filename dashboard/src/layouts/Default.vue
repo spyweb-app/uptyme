@@ -4,17 +4,24 @@
       <div class="logo">
         <span class="logo-icon">&#9670;</span>
         <span class="logo-text">PULSE</span>
+        <span v-if="nodeRole !== 'standalone'" class="role-badge" :class="nodeRole">
+          {{ nodeRole }}
+        </span>
       </div>
       <nav class="nav">
         <RouterLink class="nav-btn" active-class="active" to="/" exact>
           <span class="i-mdi-monitor-dashboard nav-icon" />
           Monitors
         </RouterLink>
-        <RouterLink class="nav-btn" active-class="active" to="/notifications">
+        <RouterLink class="nav-btn" active-class="active" to="/notifications" v-if="nodeRole !== 'checker'">
           <span class="i-mdi-bell-ring-outline nav-icon" />
           Notifications
         </RouterLink>
-        <RouterLink class="nav-btn" active-class="active" to="/settings">
+        <RouterLink class="nav-btn" active-class="active" to="/nodes" v-if="nodeRole === 'central'">
+          <span class="i-mdi-server nav-icon" />
+          Nodes
+        </RouterLink>
+        <RouterLink class="nav-btn" active-class="active" to="/settings" v-if="nodeRole !== 'checker'">
           <span class="i-mdi-cog-outline nav-icon" />
           Settings
         </RouterLink>
@@ -46,14 +53,18 @@
         <span class="i-mdi-monitor-dashboard mobile-nav-icon" />
         <span>Monitors</span>
       </RouterLink>
-      <RouterLink class="mobile-nav-btn" active-class="active" to="/notifications">
-        <span class="i-mdi-bell-ring-outline mobile-nav-icon" />
-        <span>Alerts</span>
-      </RouterLink>
-      <RouterLink class="mobile-nav-btn" active-class="active" to="/settings">
-        <span class="i-mdi-cog-outline mobile-nav-icon" />
-        <span>Settings</span>
-      </RouterLink>
+      <RouterLink class="mobile-nav-btn" active-class="active" to="/notifications" v-if="nodeRole !== 'checker'">
+          <span class="i-mdi-bell-ring-outline mobile-nav-icon" />
+          <span>Alerts</span>
+        </RouterLink>
+        <RouterLink class="mobile-nav-btn" active-class="active" to="/nodes" v-if="nodeRole === 'central'">
+          <span class="i-mdi-server mobile-nav-icon" />
+          <span>Nodes</span>
+        </RouterLink>
+        <RouterLink class="mobile-nav-btn" active-class="active" to="/settings" v-if="nodeRole !== 'checker'">
+          <span class="i-mdi-cog-outline mobile-nav-icon" />
+          <span>Settings</span>
+        </RouterLink>
       <button class="mobile-nav-btn" @click="toggleTheme" :title="isDark ? 'Switch to light mode' : 'Switch to dark mode'">
         <span :class="isDark ? 'i-mdi-weather-sunny' : 'i-mdi-weather-night'" class="mobile-nav-icon" />
         <span>Theme</span>
@@ -67,7 +78,7 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
 import { ref, computed, onMounted } from 'vue'
-import { notification, clearNotification } from '~stores/app'
+import { notification, clearNotification, nodeRole } from '~stores/app'
 import { showAuthModal } from '~stores/auth'
 import AuthModal from '~com/AuthModal.vue'
 
@@ -114,6 +125,22 @@ onMounted(() => {
 
 .logo {
   @apply flex items-center gap-[10px] p-5 border-b border-[var(--border)];
+}
+
+.role-badge {
+  @apply ml-auto text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full font-medium border;
+}
+
+.role-badge.checker {
+  @apply text-[var(--accent)];
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.role-badge.central {
+  @apply text-[var(--up)];
+  border-color: color-mix(in srgb, var(--up) 40%, transparent);
+  background: color-mix(in srgb, var(--up) 12%, transparent);
 }
 
 .logo-icon {

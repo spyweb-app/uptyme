@@ -3,6 +3,20 @@ set -e
 
 cd "$(dirname "$0")"
 
+# Quiet level: -q (warnings & errors) or -qq (errors only), default -q
+QUIET_FLAG="-q"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -qq) QUIET_FLAG="-qq" ;;
+    -q) QUIET_FLAG="-q" ;;
+    --port)
+      echo "Error: --port is not supported in watch (SpyWeb must stay on 8000 for the Vite /api proxy)"
+      exit 1 ;;
+    *) echo "Unknown: $1"; exit 1 ;;
+  esac
+  shift
+done
+
 cleanup() {
   kill $SPYWEB_PID $VITE_PID 2>/dev/null
   wait $SPYWEB_PID $VITE_PID 2>/dev/null
@@ -10,7 +24,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 echo "Starting SpyWeb on port 8000..."
-./spyweb start --port 8000 &
+./spyweb start --port 8000 $QUIET_FLAG &
 SPYWEB_PID=$!
 
 sleep 1

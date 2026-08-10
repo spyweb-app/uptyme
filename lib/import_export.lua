@@ -1,3 +1,5 @@
+local normalize = require("lib.monitor_util").normalize
+
 local M = {}
 
 function M.csv_escape(s)
@@ -79,17 +81,18 @@ end
 function M.export_csv(rows)
     local lines = { "name,url,method,interval_sec,timeout_ms,check_value,desktop_notify,enabled,check_cert,cert_threshold_days" }
     for _, m in ipairs(rows) do
+        local n = normalize(m)
         table.insert(lines, table.concat({
             M.csv_escape(m.name),
             M.csv_escape(m.url),
-            M.csv_escape(m.method or "HEAD"),
-            tostring(m.interval_sec or 300),
-            tostring(m.timeout_ms or 10000),
-            M.csv_escape(m.check_value or ""),
-            tostring(m.desktop_notify or 0),
-            tostring(m.enabled or 1),
-            tostring(m.check_cert or 0),
-            tostring(m.cert_threshold_days or 14),
+            M.csv_escape(n.method),
+            tostring(n.interval_sec),
+            tostring(n.timeout_ms),
+            M.csv_escape(n.check_value),
+            tostring(n.desktop_notify),
+            tostring(n.enabled),
+            tostring(n.check_cert),
+            tostring(n.cert_threshold_days),
         }, ","))
     end
     return table.concat(lines, "\n")

@@ -204,18 +204,6 @@ onMounted(() => { channelStore.load() })
 </script>
 
 <style scoped>
-.topbar {
-  @apply flex items-center justify-between px-7 py-5 border-b border-[var(--border)] bg-[var(--base)];
-}
-
-.title {
-  @apply text-[22px] font-semibold tracking-[-0.3px] flex items-center;
-}
-
-.content {
-  @apply flex-1 overflow-y-auto px-7 py-6;
-}
-
 .loading, .empty {
   @apply flex flex-col items-center justify-center h-[40vh] text-[var(--text-muted)] gap-3;
 }
@@ -229,39 +217,7 @@ onMounted(() => { channelStore.load() })
   gap: 12px;
 }
 
-.toggle {
-  @apply relative inline-block w-9 h-5 shrink-0;
 
-  & input {
-    @apply opacity-0 w-0 h-0;
-  }
-}
-
-.toggle-slider {
-  @apply absolute cursor-pointer inset-0 bg-[var(--border-hover)] rounded-[20px];
-  transition: 0.2s;
-
-  &::before {
-    content: '';
-    position: absolute;
-    height: 16px;
-    width: 16px;
-    left: 2px;
-    bottom: 2px;
-    background: var(--text-muted);
-    border-radius: 50%;
-    transition: 0.2s;
-  }
-}
-
-.toggle input:checked + .toggle-slider {
-  background: var(--up);
-
-  &::before {
-    transform: translateX(16px);
-    background: #fff;
-  }
-}
 
 .channel-info {
   @apply flex items-center gap-3 flex-1 min-w-0;

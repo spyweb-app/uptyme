@@ -1,0 +1,5 @@
+name = "DB Benchmark"
+enabled = false
+url = "https://placeholder.local"
+selector = "body"
+fields = ["dummy:body"]

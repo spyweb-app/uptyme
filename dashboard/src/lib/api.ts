@@ -92,6 +92,32 @@ export interface NotificationChannel {
   created_at: number
 }
 
+export interface ClusterNode {
+  id: number
+  name: string
+  local_name?: string
+  role: string
+  last_seen_at: number | null
+  active: number
+  created_at: number
+  updated_at: number
+}
+
+export interface NodeDetail extends ClusterNode {
+  token_prefix: string
+}
+
+export interface NodeReport {
+  monitor_id: number
+  monitor_name: string | null
+  monitor_url: string | null
+  is_up: number
+  status_code: number | null
+  response_time_ms: number | null
+  error_message: string | null
+  reported_at: number
+}
+
 export interface Health {
   status: string
   headless: boolean
@@ -184,4 +210,28 @@ export const api = {
 
   setMonitorChannels: (id: number, channelIds: number[]) =>
     request<{ success: boolean }>('/monitors/' + id + '/channels', { method: 'PUT', body: JSON.stringify(channelIds) }),
+
+  listNodes: () => request<ClusterNode[]>('/nodes'),
+
+  createNode: (data: { name: string; role?: string }) =>
+    request<{ node: ClusterNode; token: string }>('/nodes', { method: 'POST', body: JSON.stringify(data) }),
+
+  getNode: (id: number) => request<NodeDetail>('/nodes/' + id),
+
+  getNodeReports: (id: number) => request<NodeReport[]>('/nodes/' + id + '/reports'),
+
+  updateNode: (id: number, data: Partial<ClusterNode>) =>
+    request<ClusterNode>('/nodes/' + id, { method: 'PUT', body: JSON.stringify(data) }),
+
+  activateNode: (id: number) =>
+    request<ClusterNode>('/nodes/' + id + '/activate', { method: 'PUT' }),
+
+  deactivateNode: (id: number) =>
+    request<ClusterNode>('/nodes/' + id + '/deactivate', { method: 'PUT' }),
+
+  resetNodeToken: (id: number) =>
+    request<{ node: ClusterNode; token: string }>('/nodes/' + id + '/reset-token', { method: 'PUT' }),
+
+  deleteNode: (id: number) =>
+    request<{ deleted: boolean }>('/nodes/' + id, { method: 'DELETE' }),
 }

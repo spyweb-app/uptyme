@@ -32,9 +32,6 @@ import {
   Tooltip,
 } from 'chart.js'
 import { api, type DaySummary } from '~lib/api'
-import { autoRefresh } from '~stores/app'
-import { showAuthModal } from '~stores/auth'
-import { usePoll } from '~composables/usePoll'
 
 ChartJS.register(BarElement, LinearScale, CategoryScale, Tooltip)
 
@@ -45,9 +42,6 @@ const props = defineProps<{
 const days = [1, 14, 30]
 const selectedDays = ref(14)
 const rawData = ref<DaySummary[]>([])
-
-const pollEnabled = computed(() => autoRefresh.value && !showAuthModal.value)
-usePoll(() => selectDays(selectedDays.value), 30_000, pollEnabled)
 
 onMounted(() => selectDays(selectedDays.value))
 
@@ -63,6 +57,12 @@ async function selectDays(d: number) {
   selectedDays.value = d
   rawData.value = await api.getSummary(props.monitorId, d, getGroupUnit(d))
 }
+
+function refresh() {
+  return selectDays(selectedDays.value)
+}
+
+defineExpose({ refresh })
 
 function generateSlots(): Slot[] {
   const now = new Date()

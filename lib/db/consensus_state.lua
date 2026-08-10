@@ -1,8 +1,7 @@
 local M = {}
 
 function M.get_monitor_consensus_state(monitor_id)
-  local rows = db_query("SELECT * FROM cluster_monitor_state WHERE monitor_id = ?", { monitor_id })
-  return rows[1]
+  return db_first("SELECT * FROM cluster_monitor_state WHERE monitor_id = ?", { monitor_id })
 end
 
 function M.insert_consensus_state(monitor_id, new_status, now)

@@ -1,4 +1,16 @@
-import { ref, watch } from 'vue'
+import { ref } from 'vue'
+import { api } from '~lib/api'
+
+export const nodeRole = ref<'standalone' | 'central' | 'checker'>('standalone')
+
+export async function loadNodeRole() {
+  try {
+    const s = await api.getSettings()
+    nodeRole.value = (s.role as any) || 'standalone'
+  } catch {
+    nodeRole.value = 'standalone'
+  }
+}
 
 export const connected = ref(true)
 
@@ -17,9 +29,3 @@ export function showNotification(msg: string, type: Toast['type'] = 'info') {
 export function clearNotification() {
   notification.value = null
 }
-
-const storedRefresh = localStorage.getItem('pulse-auto-refresh')
-export const autoRefresh = ref(storedRefresh !== null ? storedRefresh === 'true' : true)
-watch(autoRefresh, (v) => {
-  localStorage.setItem('pulse-auto-refresh', String(v))
-})

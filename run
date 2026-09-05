@@ -9,6 +9,7 @@ QUIET_FLAG="-q"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --port) PORT_FLAG="--port $2"; shift 2 ;;
+    --port=*) PORT_FLAG="--port ${1#--port=}"; shift ;;
     -qq) QUIET_FLAG="-qq" ;;
     -q) QUIET_FLAG="-q" ;;
     *) echo "Unknown: $1"; exit 1 ;;

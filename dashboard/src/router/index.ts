@@ -30,6 +30,10 @@ const routes = [
     component: () => import('~pages/Dashboard.vue').then(wrapPage),
   },
   {
+    path: '/monitors',
+    component: () => import('~pages/Monitors.vue').then(wrapPage),
+  },
+  {
     path: '/settings',
     component: () => import('~pages/Settings.vue').then(wrapPage),
     meta: { checkerHidden: true },
@@ -53,6 +57,7 @@ const router = createRouter({
 
 router.beforeEach((to) => {
   if (nodeRole.value === 'checker' && to.meta?.checkerHidden) return '/'
+  if (nodeRole.value === 'checker' && to.path === '/') return '/monitors'
 })
 
 router.onError((err) => {

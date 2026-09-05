@@ -10,6 +10,10 @@
       </div>
       <nav class="nav">
         <RouterLink class="nav-btn" active-class="active" to="/" exact>
+          <span class="i-mdi-view-dashboard-outline nav-icon" />
+          Dashboard
+        </RouterLink>
+        <RouterLink class="nav-btn" active-class="active" to="/monitors">
           <span class="i-mdi-monitor-dashboard nav-icon" />
           Monitors
         </RouterLink>
@@ -50,6 +54,10 @@
 
     <nav class="mobile-nav">
       <RouterLink class="mobile-nav-btn" active-class="active" to="/" exact>
+        <span class="i-mdi-view-dashboard-outline mobile-nav-icon" />
+        <span>Dashboard</span>
+      </RouterLink>
+      <RouterLink class="mobile-nav-btn" active-class="active" to="/monitors">
         <span class="i-mdi-monitor-dashboard mobile-nav-icon" />
         <span>Monitors</span>
       </RouterLink>

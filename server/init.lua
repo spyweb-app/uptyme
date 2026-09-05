@@ -6,6 +6,7 @@ local nodes = require("handlers.nodes")
 local settings = require("handlers.settings")
 local channels = require("handlers.channels")
 local health = require("handlers.health")
+local stats = require("handlers.stats")
 local cluster_auth = require("lib.cluster_auth")
 local logger = require("lib.logger")
 
@@ -34,6 +35,8 @@ put.channels = channels.update
 delete.channels = channels.remove
 
 get.health = health.check
+
+get.stats = stats.get
 
 get.nodes = nodes.list
 post.nodes = nodes.create

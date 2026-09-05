@@ -116,6 +116,14 @@ h1 {
   background-color: var(--hover);
 }
 
+.btn-secondary {
+  @apply px-4 py-2 border border-[var(--border-hover)] bg-[var(--input)] text-[var(--text)] rounded-lg text-[13px] cursor-pointer transition-all duration-150 inline-flex items-center;
+
+  &:hover {
+    @apply bg-[var(--border-hover)];
+  }
+}
+
 .modal-overlay {
   @apply fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50;
 }

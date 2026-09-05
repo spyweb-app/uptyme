@@ -363,4 +363,237 @@ function M.cleanup_old_history(days)
   return deleted
 end
 
+-- Global dashboard stats
+
+local function global_series(days)
+  local since = os.time() - (days * 86400)
+  local rows = db_query([[
+    SELECT date(checked_at, 'unixepoch') as period,
+           COUNT(*) as total,
+           SUM(is_up) as up_count
+    FROM check_history
+    WHERE checked_at >= ?
+    GROUP BY period
+    ORDER BY period ASC
+  ]], { since })
+  local out = {}
+  for _, r in ipairs(rows) do
+    local total = tonumber(r.total) or 0
+    local up = tonumber(r.up_count) or 0
+    out[#out + 1] = {
+      period = r.period,
+      total = total,
+      up_count = up,
+      uptime = total > 0 and math.floor((up / total) * 100) or 0,
+    }
+  end
+  return out
+end
+
+local function global_aggregates(now)
+  local monitor = db_first([[
+    SELECT COUNT(*) as total,
+           SUM(CASE WHEN enabled = 1 THEN 1 ELSE 0 END) as enabled,
+           SUM(CASE WHEN enabled = 0 THEN 1 ELSE 0 END) as disabled,
+           SUM(CASE WHEN enabled = 1 AND is_up = 1 THEN 1 ELSE 0 END) as up,
+           SUM(CASE WHEN enabled = 1 AND is_up = 0 THEN 1 ELSE 0 END) as down,
+           SUM(CASE WHEN enabled = 1 AND is_up IS NULL THEN 1 ELSE 0 END) as unknown
+    FROM monitors
+  ]])
+
+  local history = db_first([[
+    SELECT
+      SUM(CASE WHEN checked_at >= ? AND is_up = 1 THEN 1 ELSE 0 END) as up_24h,
+      SUM(CASE WHEN checked_at >= ? THEN 1 ELSE 0 END) as total_24h,
+      SUM(CASE WHEN checked_at >= ? AND is_up = 1 THEN 1 ELSE 0 END) as up_7d,
+      SUM(CASE WHEN checked_at >= ? THEN 1 ELSE 0 END) as total_7d,
+      SUM(CASE WHEN checked_at >= ? AND is_up = 1 THEN 1 ELSE 0 END) as up_30d,
+      SUM(CASE WHEN checked_at >= ? THEN 1 ELSE 0 END) as total_30d
+    FROM check_history
+  ]], {
+    now - 86400, now - 86400,
+    now - 604800, now - 604800,
+    now - 2592000, now - 2592000,
+  })
+
+  local function uptime(up, total)
+    up = tonumber(up) or 0
+    total = tonumber(total) or 0
+    return total > 0 and math.floor((up / total) * 10000) / 100 or nil
+  end
+
+  return {
+    total = tonumber(monitor.total) or 0,
+    enabled = tonumber(monitor.enabled) or 0,
+    disabled = tonumber(monitor.disabled) or 0,
+    up = tonumber(monitor.up) or 0,
+    down = tonumber(monitor.down) or 0,
+    unknown = tonumber(monitor.unknown) or 0,
+    avg_uptime_24h = uptime(history.up_24h, history.total_24h),
+    avg_uptime_7d = uptime(history.up_7d, history.total_7d),
+    avg_uptime_30d = uptime(history.up_30d, history.total_30d),
+  }
+end
+
+local function standalone_incidents(limit)
+  local rows = db_query([[
+    SELECT h.monitor_id, m.name, m.url, h.is_up, h.status_code, h.checked_at
+    FROM (
+      SELECT monitor_id, checked_at, is_up, status_code,
+             LAG(is_up) OVER (PARTITION BY monitor_id ORDER BY checked_at) AS prev_is_up
+      FROM check_history
+    ) h
+    JOIN monitors m ON m.id = h.monitor_id
+    WHERE h.prev_is_up IS NOT NULL AND h.is_up != h.prev_is_up
+    ORDER BY h.checked_at DESC
+    LIMIT ?
+  ]], { limit })
+  local out = {}
+  for _, r in ipairs(rows) do
+    out[#out + 1] = {
+      monitor_id = r.monitor_id,
+      name = r.name,
+      url = r.url,
+      status = (r.is_up == 1 or r.is_up == "1") and "UP" or "DOWN",
+      status_code = r.status_code,
+      at = r.checked_at,
+    }
+  end
+  return out
+end
+
+local function needs_attention(now, limit)
+  local rows = db_query([[
+    SELECT id, name, url, is_up, last_status_code, last_response_time_ms, last_check_at,
+           interval_sec
+    FROM monitors
+    WHERE enabled = 1
+      AND (
+        is_up = 0 OR
+        last_check_at IS NULL OR
+        (? - last_check_at) > MAX(COALESCE(interval_sec, 300) * 2, 60)
+      )
+    ORDER BY CASE WHEN is_up = 0 THEN 0 ELSE 1 END,
+             CASE WHEN last_check_at IS NULL THEN 0 ELSE last_check_at END ASC
+    LIMIT ?
+  ]], { now, limit })
+  local out = {}
+  for _, r in ipairs(rows) do
+    local stale = not r.last_check_at or (now - r.last_check_at) > math.max((tonumber(r.interval_sec) or 300) * 2, 60)
+    out[#out + 1] = {
+      monitor_id = r.id,
+      name = r.name,
+      url = r.url,
+      reason = r.is_up == 0 and "DOWN" or (stale and "STALE" or "UNKNOWN"),
+      status = r.is_up == 0 and "DOWN" or "UNKNOWN",
+      status_code = r.last_status_code,
+      last_response_time_ms = r.last_response_time_ms,
+      last_check_at = r.last_check_at,
+    }
+  end
+  return out
+end
+
+local function slowest_monitors(now, limit)
+  local rows = db_query([[
+    SELECT m.id, m.name, m.url,
+           AVG(h.response_time_ms) as avg_response_time_ms,
+           COUNT(h.id) as samples
+    FROM monitors m
+    JOIN check_history h ON h.monitor_id = m.id
+    WHERE m.enabled = 1
+      AND h.checked_at >= ?
+      AND h.response_time_ms > 0
+    GROUP BY m.id
+    ORDER BY avg_response_time_ms DESC
+    LIMIT ?
+  ]], { now - 86400, limit })
+  local out = {}
+  for _, r in ipairs(rows) do
+    out[#out + 1] = {
+      monitor_id = r.id,
+      name = r.name,
+      url = r.url,
+      avg_response_time_ms = math.floor((tonumber(r.avg_response_time_ms) or 0) * 10) / 10,
+      samples = tonumber(r.samples) or 0,
+    }
+  end
+  return out
+end
+
+local function node_health(now)
+  local liveness_row = db_first("SELECT value FROM settings WHERE key = ?", { "node_liveness_sec" })
+  local liveness = tonumber(liveness_row and liveness_row.value) or 90
+  local rows = db_query([[
+    SELECT id, name, role, active, last_seen_at
+    FROM nodes
+    WHERE role != 'central'
+    ORDER BY name ASC
+  ]])
+  local out = {}
+  for _, r in ipairs(rows) do
+    local status = r.active == 0 and "inactive"
+      or (not r.last_seen_at or now - r.last_seen_at > liveness) and "stale"
+      or "online"
+    out[#out + 1] = {
+      id = r.id,
+      name = r.name,
+      role = r.role,
+      active = r.active,
+      last_seen_at = r.last_seen_at,
+      status = status,
+    }
+  end
+  return out
+end
+
+local function central_incidents(limit)
+  local rows = db_query([[
+    SELECT cms.monitor_id, m.name, m.url, cms.current_status, cms.last_transition_at
+    FROM cluster_monitor_state cms
+    JOIN monitors m ON m.id = cms.monitor_id
+    WHERE cms.current_status = 'DOWN'
+    ORDER BY cms.last_transition_at DESC
+    LIMIT ?
+  ]], { limit })
+  local out = {}
+  for _, r in ipairs(rows) do
+    out[#out + 1] = {
+      monitor_id = r.monitor_id,
+      name = r.name,
+      url = r.url,
+      status = r.current_status,
+      at = r.last_transition_at,
+    }
+  end
+  return out
+end
+
+function M.get_global_stats(role)
+  role = role or runtime_config.role()
+  local now = os.time()
+  local aggregates = global_aggregates(now)
+
+  return {
+    generated_at = now,
+    aggregates = {
+      total = aggregates.total,
+      enabled = aggregates.enabled,
+      disabled = aggregates.disabled,
+      up = aggregates.up,
+      down = aggregates.down,
+      unknown = aggregates.unknown,
+      active_incidents = aggregates.down,
+      avg_uptime_24h = aggregates.avg_uptime_24h,
+      avg_uptime_7d = aggregates.avg_uptime_7d,
+      avg_uptime_30d = aggregates.avg_uptime_30d,
+    },
+    series = global_series(30),
+    incidents = role == "central" and central_incidents(20) or standalone_incidents(20),
+    attention = needs_attention(now, 10),
+    slowest = slowest_monitors(now, 5),
+    nodes = role == "central" and node_health(now) or {},
+  }
+end
+
 return M

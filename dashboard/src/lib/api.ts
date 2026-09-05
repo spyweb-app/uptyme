@@ -123,8 +123,78 @@ export interface Health {
   headless: boolean
 }
 
+export interface StatsAggregates {
+  total: number
+  enabled: number
+  disabled: number
+  up: number
+  down: number
+  unknown: number
+  active_incidents: number
+  avg_uptime_24h: number | null
+  avg_uptime_7d: number | null
+  avg_uptime_30d: number | null
+}
+
+export interface StatsSeriesPoint {
+  period: string
+  total: number
+  up_count: number
+  uptime: number
+}
+
+export interface StatsIncident {
+  monitor_id: number
+  name: string
+  url: string
+  status: string
+  status_code: number | null
+  at: number | null
+  duration_sec: number | null
+}
+
+export interface StatsAttention {
+  monitor_id: number
+  name: string
+  url: string
+  reason: string
+  status: string
+  status_code: number | null
+  last_response_time_ms: number | null
+  last_check_at: number | null
+}
+
+export interface StatsSlowMonitor {
+  monitor_id: number
+  name: string
+  url: string
+  avg_response_time_ms: number
+  samples: number
+}
+
+export interface StatsNode {
+  id: number
+  name: string
+  role: string
+  active: number
+  last_seen_at: number | null
+  status: string
+}
+
+export interface GlobalStats {
+  generated_at: number
+  aggregates: StatsAggregates
+  series: StatsSeriesPoint[]
+  incidents: StatsIncident[]
+  attention: StatsAttention[]
+  slowest: StatsSlowMonitor[]
+  nodes: StatsNode[]
+}
+
 export const api = {
   getHealth: () => request<Health>('/health'),
+
+  getStats: () => request<GlobalStats>('/stats'),
 
   listMonitors: (opts?: { page?: number; per_page?: number; sort?: string; order?: string; q?: string; enabled?: number }) => {
     const params = new URLSearchParams()

@@ -215,6 +215,8 @@ end
 
 function M.delete_monitor(id)
   db_exec("DELETE FROM node_reports WHERE monitor_id = ?", { id })
+  db_exec("DELETE FROM status_page_monitors WHERE monitor_id = ?", { id })
+  db_exec("DELETE FROM status_pages WHERE monitor_id = ?", { id })
   db_delete_by_id("monitors", id)
 end
 

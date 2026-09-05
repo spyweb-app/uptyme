@@ -982,3 +982,94 @@ function test_get_global_stats_standalone_incidents()
     local stats = db.get_global_stats("standalone")
     spyweb.assert_eq(#stats.incidents, 2)
 end
+
+-- =============================================================================
+-- Public status pages — Phase 1 database layer
+-- =============================================================================
+
+function test_status_page_schema()
+    db.ensure_schema()
+    local tables = db_query([[SELECT name FROM sqlite_master
+        WHERE type = 'table' AND name IN ('status_pages', 'status_page_monitors')
+        ORDER BY name]])
+    spyweb.assert_eq(#tables, 2)
+    spyweb.assert_eq(tables[1].name, "status_page_monitors")
+    spyweb.assert_eq(tables[2].name, "status_pages")
+end
+
+function test_status_page_crud_slug_and_membership()
+    db.ensure_schema()
+    db_exec("DELETE FROM status_page_monitors")
+    db_exec("DELETE FROM status_pages")
+    db_exec("DELETE FROM monitors")
+
+    local monitor_id = db_query([[INSERT INTO monitors (name, url)
+        VALUES ('Public Phase 1', 'https://public-phase-1.example.com') RETURNING id]])[1].id
+
+    local monitor_page, err = db.create_status_page({
+        type = "monitor",
+        monitor_id = monitor_id,
+        name = "Public Service",
+        description = "Public service description",
+        is_public = true,
+    })
+    spyweb.assert_ne(monitor_page, nil)
+    spyweb.assert_eq(err, nil)
+    spyweb.assert_eq(monitor_page.type, "monitor")
+    spyweb.assert_eq(monitor_page.monitor_id, monitor_id)
+    spyweb.assert_eq(monitor_page.is_public, 1)
+    local monitor_slug = monitor_page.slug
+
+    local updated = db.update_status_page(monitor_page.id, {
+        name = "Renamed Public Service",
+        is_public = false,
+    })
+    spyweb.assert_eq(updated.name, "Renamed Public Service")
+    spyweb.assert_eq(updated.is_public, 0)
+    spyweb.assert_eq(updated.slug, monitor_slug)
+
+    local group = db.create_status_page({
+        type = "group",
+        name = "Public Service Group",
+        is_public = true,
+    })
+    spyweb.assert_ne(group, nil)
+    spyweb.assert_eq(group.monitor_id, nil)
+    spyweb.assert_eq(group.is_public, 1)
+
+    local membership = db.add_status_page_monitor(group.id, monitor_id, 4)
+    spyweb.assert_ne(membership, nil)
+    spyweb.assert_eq(membership.display_order, 4)
+    local members = db.list_status_page_monitors(group.id)
+    spyweb.assert_eq(#members, 1)
+    spyweb.assert_eq(members[1].id, monitor_id)
+
+    local reordered = db.update_status_page_monitor_order(group.id, monitor_id, 1)
+    spyweb.assert_eq(reordered.display_order, 1)
+    db.remove_status_page_monitor(group.id, monitor_id)
+    spyweb.assert_eq(#db.list_status_page_monitors(group.id), 0)
+
+    db.add_status_page_monitor(group.id, monitor_id, 0)
+    db.delete_status_page(group.id)
+    spyweb.assert_eq(db.get_status_page(group.id), nil)
+    spyweb.assert_ne(db.get(monitor_id), nil)
+
+    db.delete_monitor(monitor_id)
+    spyweb.assert_eq(db.get(monitor_id), nil)
+    spyweb.assert_eq(db.get_status_page(monitor_page.id), nil)
+end
+
+function test_status_page_membership_rejects_monitor_pages()
+    db.ensure_schema()
+    db_exec("DELETE FROM status_page_monitors")
+    db_exec("DELETE FROM status_pages")
+    db_exec("DELETE FROM monitors")
+
+    local monitor_id = db_query([[INSERT INTO monitors (name, url)
+        VALUES ('Membership Test', 'https://membership-test.example.com') RETURNING id]])[1].id
+    local page = db.create_status_page({ type = "monitor", monitor_id = monitor_id, name = "Monitor Page" })
+    local membership, err = db.add_status_page_monitor(page.id, monitor_id, 0)
+    spyweb.assert_eq(membership, nil)
+    spyweb.assert_eq(err, "monitor pages cannot have members")
+    db.delete_monitor(monitor_id)
+end

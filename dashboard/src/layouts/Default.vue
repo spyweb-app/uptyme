@@ -9,7 +9,7 @@
         </span>
       </div>
       <nav class="nav">
-        <RouterLink class="nav-btn" active-class="active" to="/" exact>
+        <RouterLink class="nav-btn" active-class="active" to="/" exact v-if="nodeRole !== 'checker'">
           <span class="i-mdi-view-dashboard-outline nav-icon" />
           Dashboard
         </RouterLink>
@@ -53,7 +53,7 @@
     </transition>
 
     <nav class="mobile-nav">
-      <RouterLink class="mobile-nav-btn" active-class="active" to="/" exact>
+      <RouterLink class="mobile-nav-btn" active-class="active" to="/" exact v-if="nodeRole !== 'checker'">
         <span class="i-mdi-view-dashboard-outline mobile-nav-icon" />
         <span>Dashboard</span>
       </RouterLink>
@@ -62,17 +62,17 @@
         <span>Monitors</span>
       </RouterLink>
       <RouterLink class="mobile-nav-btn" active-class="active" to="/notifications" v-if="nodeRole !== 'checker'">
-          <span class="i-mdi-bell-ring-outline mobile-nav-icon" />
-          <span>Alerts</span>
-        </RouterLink>
-        <RouterLink class="mobile-nav-btn" active-class="active" to="/nodes" v-if="nodeRole === 'central'">
-          <span class="i-mdi-server mobile-nav-icon" />
-          <span>Nodes</span>
-        </RouterLink>
-        <RouterLink class="mobile-nav-btn" active-class="active" to="/settings" v-if="nodeRole !== 'checker'">
-          <span class="i-mdi-cog-outline mobile-nav-icon" />
-          <span>Settings</span>
-        </RouterLink>
+        <span class="i-mdi-bell-ring-outline mobile-nav-icon" />
+        <span>Alerts</span>
+      </RouterLink>
+      <RouterLink class="mobile-nav-btn" active-class="active" to="/nodes" v-if="nodeRole === 'central'">
+        <span class="i-mdi-server mobile-nav-icon" />
+        <span>Nodes</span>
+      </RouterLink>
+      <RouterLink class="mobile-nav-btn" active-class="active" to="/settings" v-if="nodeRole !== 'checker'">
+        <span class="i-mdi-cog-outline mobile-nav-icon" />
+        <span>Settings</span>
+      </RouterLink>
       <button class="mobile-nav-btn" @click="toggleTheme" :title="isDark ? 'Switch to light mode' : 'Switch to dark mode'">
         <span :class="isDark ? 'i-mdi-weather-sunny' : 'i-mdi-weather-night'" class="mobile-nav-icon" />
         <span>Theme</span>

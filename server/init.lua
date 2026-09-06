@@ -7,6 +7,7 @@ local settings = require("handlers.settings")
 local channels = require("handlers.channels")
 local health = require("handlers.health")
 local stats = require("handlers.stats")
+local status = require("handlers.status")
 local cluster_auth = require("lib.cluster_auth")
 local logger = require("lib.logger")
 
@@ -47,3 +48,4 @@ public.get.cluster_version = verify_public_endpoint(cluster.version)
 public.get.cluster_export = verify_public_endpoint(cluster.export)
 public.post.report = verify_public_endpoint(reports.report)
 public.get.node_me = verify_public_endpoint(nodes.me)
+public.get.status = status.get

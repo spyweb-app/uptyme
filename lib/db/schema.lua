@@ -71,6 +71,10 @@ function M._ensure_settings()
   db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('consensus_min_nodes', '2')")
   db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('consensus_quorum_pct', '51')")
   db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('treat_4xx_as_down', '0')")
+  db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('status_page_slug_style', 'name_random')")
+  db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('status_page_random_length', '5')")
+  db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('status_page_name_max_length', '20')")
+  db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('status_page_theme', 'light')")
 end
 
 function M._ensure_notifications()

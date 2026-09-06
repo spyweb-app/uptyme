@@ -137,44 +137,47 @@ function M.get_history(id, before, limit)
   ]], { id, before, limit })
 end
 
-function M.get_summary(id, days, group_unit)
+function M.get_summary(monitor_ids, days, group_unit)
   local since = os.time() - (days * 86400)
+  local ids = type(monitor_ids) == "table" and monitor_ids or { monitor_ids }
+  local bulk = #ids > 1
 
+  local placeholders = {}
+  for _ = 1, #ids do placeholders[#placeholders + 1] = "?" end
+  local where = "monitor_id IN (" .. table.concat(placeholders, ",") .. ")"
+
+  local period_expr
   if group_unit == "hour" then
-    return db_query([[
-      SELECT strftime('%Y-%m-%dT%H:00:00', checked_at, 'unixepoch') as period,
-             COUNT(*) as total,
-             SUM(is_up) as up_count
-      FROM check_history
-      WHERE monitor_id = ? AND checked_at >= ?
-      GROUP BY period
-      ORDER BY period DESC
-    ]], { id, since })
+    period_expr = "strftime('%Y-%m-%dT%H:00:00', checked_at, 'unixepoch')"
+  elseif group_unit == "halfday" then
+    period_expr = [[strftime('%Y-%m-%dT', checked_at, 'unixepoch') ||
+      CASE WHEN cast(strftime('%H', checked_at, 'unixepoch') as integer) < 12
+           THEN '00:00:00' ELSE '12:00:00' END]]
+  else
+    period_expr = "date(checked_at, 'unixepoch')"
   end
 
-  if group_unit == "halfday" then
-    return db_query([[
-      SELECT strftime('%Y-%m-%dT', checked_at, 'unixepoch') ||
-             CASE WHEN cast(strftime('%H', checked_at, 'unixepoch') as integer) < 12
-                  THEN '00:00:00' ELSE '12:00:00' END as period,
-             COUNT(*) as total,
-             SUM(is_up) as up_count
-      FROM check_history
-      WHERE monitor_id = ? AND checked_at >= ?
-      GROUP BY period
-      ORDER BY period DESC
-    ]], { id, since })
-  end
+  local monitor_col = bulk and "monitor_id, " or ""
+  local group_by = bulk and ("monitor_id, " .. period_expr) or period_expr
+  local order_by = bulk and ("monitor_id, " .. period_expr .. " DESC") or (period_expr .. " DESC")
 
-  return db_query([[
-    SELECT date(checked_at, 'unixepoch') as period,
+  local params = {}
+  for _, id in ipairs(ids) do params[#params + 1] = id end
+  params[#params + 1] = since
+
+  return db_query(string.format([[
+    SELECT %s%s as period,
            COUNT(*) as total,
-           SUM(is_up) as up_count
+           SUM(is_up) as up_count,
+           SUM(CASE WHEN is_up = 0 THEN 1 ELSE 0 END) as down_checks,
+           SUM(CASE WHEN is_up = 1 AND status_code >= 400
+                    AND status_code < 500 THEN 1 ELSE 0 END) as blocked_checks,
+           AVG(CASE WHEN response_time_ms > 0 THEN response_time_ms END) as avg_response_ms
     FROM check_history
-    WHERE monitor_id = ? AND checked_at >= ?
-    GROUP BY period
-    ORDER BY period DESC
-  ]], { id, since })
+    WHERE %s AND checked_at >= ?
+    GROUP BY %s
+    ORDER BY %s
+  ]], monitor_col, period_expr, where, group_by, order_by), params)
 end
 
 -- Write

@@ -8,6 +8,7 @@ local channels = require("handlers.channels")
 local health = require("handlers.health")
 local stats = require("handlers.stats")
 local status = require("handlers.status")
+local status_pages = require("handlers.status_pages")
 local cluster_auth = require("lib.cluster_auth")
 local logger = require("lib.logger")
 
@@ -43,6 +44,11 @@ get.nodes = nodes.list
 post.nodes = nodes.create
 put.nodes = nodes.update
 delete.nodes = nodes.remove
+
+get.status_pages = status_pages.list
+post.status_pages = status_pages.create
+put.status_pages = status_pages.update
+delete.status_pages = status_pages.remove
 
 public.get.cluster_version = verify_public_endpoint(cluster.version)
 public.get.cluster_export = verify_public_endpoint(cluster.export)

@@ -32,14 +32,6 @@ function M.logging()
     return load_config().logging or {}
 end
 
-function M.status_page()
-    return load_config().status_page or {
-        slug_style = "random",
-        random_length = 5,
-        name_max_length = 20,
-    }
-end
-
 function M.role()
     return M.get().role or "standalone"
 end

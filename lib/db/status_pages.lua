@@ -35,6 +35,9 @@ function M.create_status_page(data)
   if data.type == "monitor" and not db_first("SELECT id FROM monitors WHERE id = ?", { data.monitor_id }) then
     return nil, "monitor not found"
   end
+  if data.type == "monitor" and db_first("SELECT id FROM status_pages WHERE monitor_id = ? AND type = 'monitor'", { data.monitor_id }) then
+    return nil, "monitor already has a status page"
+  end
 
   for _ = 1, 8 do
     local slug = status_slug.generate(data.name)

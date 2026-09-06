@@ -1,4 +1,4 @@
-local runtime_config = require("lib.runtime_config")
+local settings = require("lib.db.settings")
 
 local ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyz"
 
@@ -23,10 +23,12 @@ end
 local M = {}
 
 function M.generate(name)
-  local config = runtime_config.status_page()
-  local suffix = random_suffix(config.random_length or 5)
-  if config.slug_style == "name_random" then
-    local prefix = slugify(name, config.name_max_length or 20)
+  local slug_style = settings.get_setting("status_page_slug_style", "name_random")
+  local random_length = settings.get_int("status_page_random_length", 5)
+  local name_max_length = settings.get_int("status_page_name_max_length", 20)
+  local suffix = random_suffix(random_length)
+  if slug_style == "name_random" then
+    local prefix = slugify(name, name_max_length)
     if prefix ~= "" then return prefix .. "-" .. suffix end
   end
   return suffix

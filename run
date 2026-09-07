@@ -3,13 +3,15 @@ set -e
 
 cd "$(dirname "$0")"
 
-# Parse arguments: --port and -q/-qq (default -q)
-PORT_FLAG=""
+# Parse arguments: --port, --no-test, -q/-qq
+PORT_FLAG="--port 8000"
 QUIET_FLAG="-q"
+SKIP_TEST=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --port) PORT_FLAG="--port $2"; shift 2 ;;
+    --port) PORT_FLAG="--port $2"; shift 2; continue ;;
     --port=*) PORT_FLAG="--port ${1#--port=}"; shift ;;
+    --no-test) SKIP_TEST=true ;;
     -qq) QUIET_FLAG="-qq" ;;
     -q) QUIET_FLAG="-q" ;;
     *) echo "Unknown: $1"; exit 1 ;;
@@ -36,12 +38,14 @@ if [ ! -d "dashboard/node_modules" ]; then
 fi
 
 # Run tests
-echo "Running tests..."
-./spyweb test
-if [ $? -ne 0 ]; then
-  echo ""
-  echo "SpyWeb Test, unable to build and start SpyWeb"
-  exit 1
+if [ "$SKIP_TEST" = false ]; then
+  echo "Running tests..."
+  ./spyweb test
+  if [ $? -ne 0 ]; then
+    echo ""
+    echo "SpyWeb Test Failed"
+    exit 1
+  fi
 fi
 
 # Build dashboard

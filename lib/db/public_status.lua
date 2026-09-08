@@ -71,7 +71,7 @@ local function monitor_page_row(page_id)
   ]], now - 86400, now - 86400, now - 604800, now - 604800, now - 2592000, now - 2592000), { page_id })
 end
 
-function M.get_public_monitor_status(page_id, month)
+function M.get_public_monitor_status(page_id, month, days, group)
   if runtime_config.is_checker() then return nil end
   local row = monitor_page_row(page_id)
   if not row then return nil end
@@ -95,13 +95,16 @@ function M.get_public_monitor_status(page_id, month)
   local monitor_id = tonumber(row.monitor_id)
   local monitors_db = require("lib.db.monitors")
 
+  days = days or 30
+  group = group or "day"
+
   if month then
     local now = os.time()
     local y, m = month:match("^(%d+)%-(%d+)$")
     if y and m then
       local month_start = os.time({ year = tonumber(y), month = tonumber(m), day = 1, hour = 0 })
-      local days = math.ceil((now - month_start) / 86400) + 31
-      local summary = monitors_db.get_summary(monitor_id, days, "day")
+      local month_days = math.ceil((now - month_start) / 86400) + 31
+      local summary = monitors_db.get_summary(monitor_id, month_days, group)
       local prefix = month .. "-"
       local filtered = {}
       for _, s in ipairs(summary) do
@@ -111,10 +114,10 @@ function M.get_public_monitor_status(page_id, month)
       end
       result.summary = filtered
     else
-      result.summary = monitors_db.get_summary(monitor_id, 30, "day")
+      result.summary = monitors_db.get_summary(monitor_id, days, group)
     end
   else
-    result.summary = monitors_db.get_summary(monitor_id, 30, "day")
+    result.summary = monitors_db.get_summary(monitor_id, days, group)
   end
 
   result.history = monitors_db.get_history(monitor_id, os.time(), 100)

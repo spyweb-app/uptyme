@@ -21,10 +21,12 @@ function M.get(self)
     end
 
     local month = self.query and self.query.month
+    local days = tonumber(self.query and self.query.days) or 30
+    local group = self.query and self.query.group or "day"
 
     local result
     if page.type == "monitor" then
-        result = db.get_public_monitor_status(page.id, month)
+        result = db.get_public_monitor_status(page.id, month, days, group)
     elseif page.type == "group" then
         result = db.get_public_group_status(page.id, month)
     end

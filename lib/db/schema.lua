@@ -8,6 +8,7 @@ function M.ensure_schema()
   M._ensure_nodes()
   M._ensure_node_reports()
   M._ensure_cluster_monitor_state()
+  M._ensure_consensus_transitions()
   M._ensure_status_pages()
 end
 
@@ -141,6 +142,19 @@ function M._ensure_cluster_monitor_state()
         updated_at          INTEGER NOT NULL
     )
   ]])
+end
+
+function M._ensure_consensus_transitions()
+  db_exec([[
+    CREATE TABLE IF NOT EXISTS consensus_transitions (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        monitor_id      INTEGER NOT NULL,
+        status          TEXT NOT NULL CHECK (status IN ('UP', 'DOWN')),
+        transitioned_at INTEGER NOT NULL
+    )
+  ]])
+  db_exec([[CREATE INDEX IF NOT EXISTS idx_consensus_transitions_monitor
+    ON consensus_transitions(monitor_id, transitioned_at)]])
 end
 
 function M._ensure_status_pages()

@@ -18,9 +18,14 @@ function M.update_consensus_state_timestamp(monitor_id, now)
   db_exec("UPDATE cluster_monitor_state SET updated_at = ? WHERE monitor_id = ?", { now, monitor_id })
 end
 
-function M.seed_consensus_state(monitor_id)
-  db_exec("INSERT OR IGNORE INTO cluster_monitor_state (monitor_id, current_status, last_transition_at, updated_at) VALUES (?, 'UP', ?, ?)",
-    { monitor_id, os.time(), os.time() })
+function M.insert_consensus_transition(monitor_id, status, transitioned_at)
+  db_exec("INSERT INTO consensus_transitions (monitor_id, status, transitioned_at) VALUES (?, ?, ?)",
+    { monitor_id, status, transitioned_at })
+end
+
+function M.cleanup_old_transitions(days)
+  local cutoff = os.time() - (days * 86400)
+  return db_exec("DELETE FROM consensus_transitions WHERE transitioned_at < ?", { cutoff })
 end
 
 return M

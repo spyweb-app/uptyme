@@ -44,5 +44,6 @@ function on_finished()
         if deleted and deleted > 0 then
             logger.info("cleaned " .. deleted .. " records older than " .. days .. " days", "cleanup")
         end
+        db.cleanup_old_transitions(days)
     end
 end

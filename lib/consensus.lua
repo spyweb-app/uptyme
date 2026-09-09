@@ -45,6 +45,9 @@ function M.evaluate(monitor_id, is_up_snapshot, settings)
 	
 	if not state then
 		db.insert_consensus_state(monitor_id, new_status, now)
+		if new_status == "DOWN" then
+			db.insert_consensus_transition(monitor_id, "DOWN", now)
+		end
 		return { transition = false, status = new_status }
 	end
 	
@@ -61,6 +64,7 @@ function M.evaluate(monitor_id, is_up_snapshot, settings)
 		end
 		
 		db.update_consensus_state(monitor_id, new_status, now)
+		db.insert_consensus_transition(monitor_id, new_status, now)
 		
 		return { transition = true, status = new_status, down_votes = down_votes, live_count = live_count }
 	end

@@ -8,39 +8,61 @@ local M = {}
 local ALLOWED_SORTS = {
   name = "m.name",
   url = "m.url",
-  response_time = "m.last_response_time_ms",
-  created_at = "m.created_at",
+  is_up = "m.is_up",
   last_check_at = "m.last_check_at",
 }
 
-local function uptime_subqueries(now)
-  return string.format([[
-    (SELECT COUNT(*) FROM check_history WHERE monitor_id = m.id AND checked_at >= %d AND is_up = 1) as up_24h,
-    (SELECT COUNT(*) FROM check_history WHERE monitor_id = m.id AND checked_at >= %d) as total_24h,
-    (SELECT COUNT(*) FROM check_history WHERE monitor_id = m.id AND checked_at >= %d AND is_up = 1) as up_7d,
-    (SELECT COUNT(*) FROM check_history WHERE monitor_id = m.id AND checked_at >= %d) as total_7d,
-    (SELECT COUNT(*) FROM check_history WHERE monitor_id = m.id AND checked_at >= %d AND is_up = 1) as up_30d,
-    (SELECT COUNT(*) FROM check_history WHERE monitor_id = m.id AND checked_at >= %d) as total_30d
-  ]], now - 86400, now - 86400, now - 604800, now - 604800, now - 2592000, now - 2592000)
+-- Returns the effective is_up value for a monitor row.
+-- For central nodes with consensus tracking, uses cluster_monitor_state.current_status.
+-- For standalone or untracked monitors, returns the raw is_up from the monitors table.
+local function effective_is_up(row)
+  local is_up = row.is_up
+  if runtime_config.is_central() and row.has_reports == 1 and row.current_status then
+    is_up = row.current_status == "UP" and 1 or 0
+  end
+  return is_up
 end
 
-local function compute_uptime(m)
-  m.uptime_24h = m.total_24h > 0 and math.floor((m.up_24h / m.total_24h) * 100) or nil
-  m.uptime_7d = m.total_7d > 0 and math.floor((m.up_7d / m.total_7d) * 100) or nil
-  m.uptime_30d = m.total_30d > 0 and math.floor((m.up_30d / m.total_30d) * 100) or nil
+local function effective_is_up_expr(tracked_ids, alias)
+  alias = alias or "h"
+  if #tracked_ids == 0 then return alias .. ".is_up" end
+  local tracked_literal = {}
+  for _, id in ipairs(tracked_ids) do tracked_literal[#tracked_literal + 1] = tostring(id) end
+  return string.format([[
+    CASE WHEN %s.monitor_id IN (%s)
+         THEN CASE WHEN COALESCE(
+           (SELECT ct.status FROM consensus_transitions ct
+            WHERE ct.monitor_id = %s.monitor_id AND ct.transitioned_at <= %s.checked_at
+            ORDER BY ct.transitioned_at DESC LIMIT 1),
+           'UP'
+         ) = 'UP' THEN 1 ELSE 0 END
+         ELSE %s.is_up
+    END
+  ]], alias, table.concat(tracked_literal, ","), alias, alias, alias)
 end
 
 -- Query
 
 function M.list_all()
-  local now = os.time()
   local rows = db_query([[
-    SELECT m.*,
-  ]] .. uptime_subqueries(now) .. [[
+    SELECT m.*, cs.current_status,
+           EXISTS(SELECT 1 FROM node_reports nr WHERE nr.monitor_id = m.id) AS has_reports
     FROM monitors m
+    LEFT JOIN cluster_monitor_state cs ON cs.monitor_id = m.id
     ORDER BY m.created_at DESC
   ]])
-  for _, m in ipairs(rows) do compute_uptime(m) end
+  if #rows > 0 then
+    for _, m in ipairs(rows) do m.is_up = effective_is_up(m) end
+    local ids = {}
+    for _, m in ipairs(rows) do ids[#ids + 1] = m.id end
+    local uptime = M.get_uptime(ids, { 1, 7, 30 })
+    for _, m in ipairs(rows) do
+      local u = uptime[m.id] or {}
+      m.uptime_24h = u[1]
+      m.uptime_7d = u[7]
+      m.uptime_30d = u[30]
+    end
+  end
   return rows
 end
 
@@ -77,7 +99,6 @@ function M.monitor_list(opts)
   local count_row = db_query("SELECT COUNT(*) as cnt FROM monitors m" .. where_clause, where_params)
   local total = count_row[1].cnt
 
-  local now = os.time()
   local all_params = {}
   for _, v in ipairs(where_params) do all_params[#all_params + 1] = v end
 
@@ -86,12 +107,25 @@ function M.monitor_list(opts)
   all_params[#all_params + 1] = offset
 
   local rows = db_query([[
-    SELECT m.*,
-  ]] .. uptime_subqueries(now) .. [[
+    SELECT m.*, cs.current_status,
+           EXISTS(SELECT 1 FROM node_reports nr WHERE nr.monitor_id = m.id) AS has_reports
     FROM monitors m
+    LEFT JOIN cluster_monitor_state cs ON cs.monitor_id = m.id
   ]] .. where_clause .. " ORDER BY " .. sort_col .. " " .. order_dir .. " LIMIT ? OFFSET ?", all_params)
 
-  for _, m in ipairs(rows) do compute_uptime(m) end
+  for _, m in ipairs(rows) do m.is_up = effective_is_up(m) end
+
+  if #rows > 0 then
+    local ids = {}
+    for _, m in ipairs(rows) do ids[#ids + 1] = m.id end
+    local uptime = M.get_uptime(ids, { 1, 7, 30 })
+    for _, m in ipairs(rows) do
+      local u = uptime[m.id] or {}
+      m.uptime_24h = u[1]
+      m.uptime_7d = u[7]
+      m.uptime_30d = u[30]
+    end
+  end
 
   local total_pages = math.ceil(total / per_page)
   if total_pages < 1 then total_pages = 1 end
@@ -120,14 +154,47 @@ function M.export_syncable()
 end
 
 function M.get(id)
-  return db_first("SELECT * FROM monitors WHERE id = ?", { id })
+  local row = db_first([[
+    SELECT m.*, cs.current_status,
+           EXISTS(SELECT 1 FROM node_reports nr WHERE nr.monitor_id = m.id) AS has_reports
+    FROM monitors m
+    LEFT JOIN cluster_monitor_state cs ON cs.monitor_id = m.id
+    WHERE m.id = ?
+  ]], { id })
+  if row then row.is_up = effective_is_up(row) end
+  return row
 end
 
 function M.get_by_url(url)
   return db_first("SELECT * FROM monitors WHERE url = ?", { url })
 end
 
+local function consensus_tracked_ids(ids)
+  if not runtime_config.is_central() then return {} end
+  local placeholders = {}
+  for _ = 1, #ids do placeholders[#placeholders + 1] = "?" end
+  local rows = db_query(
+    "SELECT DISTINCT monitor_id FROM node_reports WHERE monitor_id IN (" .. table.concat(placeholders, ",") .. ")",
+    ids)
+  local out = {}
+  for _, r in ipairs(rows) do out[tonumber(r.monitor_id)] = true end
+  return out
+end
+
 function M.get_history(id, before, limit)
+  local tracked = consensus_tracked_ids({ id })
+  if tracked[id] then
+    local eiu = effective_is_up_expr({ id }, "h")
+    return db_query(string.format([[
+      SELECT id, monitor_id, status_code, response_time_ms,
+        %s as is_up,
+        error_message, checked_at
+      FROM check_history h
+      WHERE monitor_id = ? AND checked_at < ?
+      ORDER BY checked_at DESC
+      LIMIT ?
+    ]], eiu), { id, before, limit })
+  end
   return db_query([[
     SELECT id, monitor_id, status_code, response_time_ms, is_up, error_message, checked_at
     FROM check_history
@@ -137,8 +204,7 @@ function M.get_history(id, before, limit)
   ]], { id, before, limit })
 end
 
-function M.get_summary(monitor_ids, days, group_unit)
-  local since = os.time() - (days * 86400)
+local function summary_range(monitor_ids, since, until_, group_unit)
   local ids = type(monitor_ids) == "table" and monitor_ids or { monitor_ids }
   local bulk = #ids > 1
 
@@ -161,23 +227,99 @@ function M.get_summary(monitor_ids, days, group_unit)
   local group_by = bulk and ("monitor_id, " .. period_expr) or period_expr
   local order_by = bulk and ("monitor_id, " .. period_expr .. " DESC") or (period_expr .. " DESC")
 
+  local tracked = consensus_tracked_ids(ids)
+  local tracked_ids = {}
+  for _, id in ipairs(ids) do
+    if tracked[id] then tracked_ids[#tracked_ids + 1] = id end
+  end
+
+  local eiu = effective_is_up_expr(tracked_ids, "h")
+
   local params = {}
   for _, id in ipairs(ids) do params[#params + 1] = id end
   params[#params + 1] = since
+  local upper_bound = ""
+  if until_ then
+    params[#params + 1] = until_
+    upper_bound = " AND h.checked_at < ?"
+  end
 
   return db_query(string.format([[
     SELECT %s%s as period,
            COUNT(*) as total,
-           SUM(is_up) as up_count,
-           SUM(CASE WHEN is_up = 0 THEN 1 ELSE 0 END) as down_checks,
-           SUM(CASE WHEN is_up = 1 AND status_code >= 400
-                    AND status_code < 500 THEN 1 ELSE 0 END) as blocked_checks,
-           AVG(CASE WHEN response_time_ms > 0 THEN response_time_ms END) as avg_response_ms
-    FROM check_history
-    WHERE %s AND checked_at >= ?
+           SUM(%s) as up_count,
+           SUM(CASE WHEN %s = 0 THEN 1 ELSE 0 END) as down_checks,
+           SUM(CASE WHEN %s = 1 AND h.status_code >= 400
+                    AND h.status_code < 500 THEN 1 ELSE 0 END) as blocked_checks,
+           AVG(CASE WHEN h.response_time_ms > 0 THEN h.response_time_ms END) as avg_response_ms
+    FROM %s
+    WHERE %s AND h.checked_at >= ?%s
     GROUP BY %s
     ORDER BY %s
-  ]], monitor_col, period_expr, where, group_by, order_by), params)
+  ]], monitor_col, period_expr, eiu, eiu, eiu, "check_history h", where, upper_bound, group_by, order_by), params)
+end
+
+function M.get_summary(monitor_ids, days, group_unit)
+  local since = os.time() - (days * 86400)
+  return summary_range(monitor_ids, since, nil, group_unit)
+end
+
+function M.get_summary_range(monitor_ids, since, until_, group_unit)
+  return summary_range(monitor_ids, since, until_, group_unit)
+end
+
+function M.get_months(monitor_id)
+  local rows = db_query([[
+    SELECT DISTINCT strftime('%Y-%m', checked_at, 'unixepoch') AS month
+    FROM check_history
+    WHERE monitor_id = ?
+    ORDER BY month DESC
+  ]], { monitor_id })
+  local months = {}
+  for _, row in ipairs(rows) do
+    months[#months + 1] = row.month
+  end
+  return months
+end
+
+function M.get_uptime(monitor_ids, windows)
+  local ids = type(monitor_ids) == "table" and monitor_ids or { monitor_ids }
+  local tracked = consensus_tracked_ids(ids)
+  local tracked_ids = {}
+  for _, id in ipairs(ids) do
+    if tracked[id] then tracked_ids[#tracked_ids + 1] = id end
+  end
+  local eiu = effective_is_up_expr(tracked_ids, "h")
+
+  local placeholders = {}
+  for _ = 1, #ids do placeholders[#placeholders + 1] = "?" end
+  local where = "m.id IN (" .. table.concat(placeholders, ",") .. ")"
+
+  local select_parts = {}
+  local now = os.time()
+  for _, days in ipairs(windows) do
+    local since = now - (days * 86400)
+    select_parts[#select_parts + 1] = string.format(
+      "(SELECT ROUND(CAST(SUM(%s) AS REAL) * 100 / NULLIF(COUNT(*), 0), 1) FROM check_history h WHERE h.monitor_id = m.id AND h.checked_at >= %d) as uptime_%dd",
+      eiu, since, days)
+  end
+
+  local query = string.format("SELECT m.id, %s FROM monitors m WHERE %s GROUP BY m.id",
+    table.concat(select_parts, ", "), where)
+
+  local params = {}
+  for _, id in ipairs(ids) do params[#params + 1] = id end
+
+  local rows = db_query(query, params)
+  local out = {}
+  for _, r in ipairs(rows) do
+    local mid = tonumber(r.id)
+    out[mid] = {}
+    for _, days in ipairs(windows) do
+      out[mid][days] = tonumber(r[string.format("uptime_%dd", days)])
+    end
+  end
+  return out
 end
 
 -- Write
@@ -218,6 +360,8 @@ end
 
 function M.delete_monitor(id)
   db_exec("DELETE FROM node_reports WHERE monitor_id = ?", { id })
+  db_exec("DELETE FROM cluster_monitor_state WHERE monitor_id = ?", { id })
+  db_exec("DELETE FROM consensus_transitions WHERE monitor_id = ?", { id })
   db_exec("DELETE FROM status_page_monitors WHERE monitor_id = ?", { id })
   db_exec("DELETE FROM status_pages WHERE monitor_id = ?", { id })
   db_delete_by_id("monitors", id)
@@ -372,15 +516,25 @@ end
 
 local function global_series(days)
   local since = os.time() - (days * 86400)
-  local rows = db_query([[
+  local all_ids = {}
+  local all_rows = db_query("SELECT id FROM monitors")
+  for _, r in ipairs(all_rows) do all_ids[#all_ids + 1] = r.id end
+  local tracked = consensus_tracked_ids(all_ids)
+  local tracked_ids = {}
+  for _, id in ipairs(all_ids) do
+    if tracked[id] then tracked_ids[#tracked_ids + 1] = id end
+  end
+  local eiu = effective_is_up_expr(tracked_ids, "h")
+
+  local rows = db_query(string.format([[
     SELECT date(checked_at, 'unixepoch') as period,
            COUNT(*) as total,
-           SUM(is_up) as up_count
-    FROM check_history
+           SUM(%s) as up_count
+    FROM check_history h
     WHERE checked_at >= ?
     GROUP BY period
     ORDER BY period ASC
-  ]], { since })
+  ]], eiu), { since })
   local out = {}
   for _, r in ipairs(rows) do
     local total = tonumber(r.total) or 0
@@ -396,26 +550,44 @@ local function global_series(days)
 end
 
 local function global_aggregates(now)
-  local monitor = db_first([[
-    SELECT COUNT(*) as total,
-           SUM(CASE WHEN enabled = 1 THEN 1 ELSE 0 END) as enabled,
-           SUM(CASE WHEN enabled = 0 THEN 1 ELSE 0 END) as disabled,
-           SUM(CASE WHEN enabled = 1 AND is_up = 1 THEN 1 ELSE 0 END) as up,
-           SUM(CASE WHEN enabled = 1 AND is_up = 0 THEN 1 ELSE 0 END) as down,
-           SUM(CASE WHEN enabled = 1 AND is_up IS NULL THEN 1 ELSE 0 END) as unknown
-    FROM monitors
+  local monitor_rows = db_query([[
+    SELECT m.id, m.enabled, m.is_up,
+           cs.current_status,
+           EXISTS(SELECT 1 FROM node_reports nr WHERE nr.monitor_id = m.id) AS has_reports
+    FROM monitors m
+    LEFT JOIN cluster_monitor_state cs ON cs.monitor_id = m.id
   ]])
 
-  local history = db_first([[
+  local total, enabled, disabled, up_count, down_count, unknown_count = 0, 0, 0, 0, 0, 0
+  local all_ids = {}
+  for _, row in ipairs(monitor_rows) do
+    total = total + 1
+    if row.enabled == 1 then enabled = enabled + 1 else disabled = disabled + 1 end
+    if row.enabled == 1 then
+      local is_up = effective_is_up(row)
+      if is_up == 1 then up_count = up_count + 1
+      elseif is_up == 0 then down_count = down_count + 1
+      else unknown_count = unknown_count + 1 end
+    end
+    all_ids[#all_ids + 1] = row.id
+  end
+  local tracked = consensus_tracked_ids(all_ids)
+  local tracked_ids = {}
+  for _, id in ipairs(all_ids) do
+    if tracked[id] then tracked_ids[#tracked_ids + 1] = id end
+  end
+  local eiu = effective_is_up_expr(tracked_ids, "h")
+
+  local history = db_first(string.format([[
     SELECT
-      SUM(CASE WHEN checked_at >= ? AND is_up = 1 THEN 1 ELSE 0 END) as up_24h,
+      SUM(CASE WHEN checked_at >= ? AND %s = 1 THEN 1 ELSE 0 END) as up_24h,
       SUM(CASE WHEN checked_at >= ? THEN 1 ELSE 0 END) as total_24h,
-      SUM(CASE WHEN checked_at >= ? AND is_up = 1 THEN 1 ELSE 0 END) as up_7d,
+      SUM(CASE WHEN checked_at >= ? AND %s = 1 THEN 1 ELSE 0 END) as up_7d,
       SUM(CASE WHEN checked_at >= ? THEN 1 ELSE 0 END) as total_7d,
-      SUM(CASE WHEN checked_at >= ? AND is_up = 1 THEN 1 ELSE 0 END) as up_30d,
+      SUM(CASE WHEN checked_at >= ? AND %s = 1 THEN 1 ELSE 0 END) as up_30d,
       SUM(CASE WHEN checked_at >= ? THEN 1 ELSE 0 END) as total_30d
-    FROM check_history
-  ]], {
+    FROM check_history h
+  ]], eiu, eiu, eiu), {
     now - 86400, now - 86400,
     now - 604800, now - 604800,
     now - 2592000, now - 2592000,
@@ -428,73 +600,179 @@ local function global_aggregates(now)
   end
 
   return {
-    total = tonumber(monitor.total) or 0,
-    enabled = tonumber(monitor.enabled) or 0,
-    disabled = tonumber(monitor.disabled) or 0,
-    up = tonumber(monitor.up) or 0,
-    down = tonumber(monitor.down) or 0,
-    unknown = tonumber(monitor.unknown) or 0,
+    total = total,
+    enabled = enabled,
+    disabled = disabled,
+    up = up_count,
+    down = down_count,
+    unknown = unknown_count,
     avg_uptime_24h = uptime(history.up_24h, history.total_24h),
     avg_uptime_7d = uptime(history.up_7d, history.total_7d),
     avg_uptime_30d = uptime(history.up_30d, history.total_30d),
   }
 end
 
-local function standalone_incidents(limit)
-  local rows = db_query([[
-    SELECT h.monitor_id, m.name, m.url, h.is_up, h.status_code, h.checked_at
-    FROM (
-      SELECT monitor_id, checked_at, is_up, status_code,
-             LAG(is_up) OVER (PARTITION BY monitor_id ORDER BY checked_at) AS prev_is_up
-      FROM check_history
-    ) h
-    JOIN monitors m ON m.id = h.monitor_id
-    WHERE h.prev_is_up IS NOT NULL AND h.is_up != h.prev_is_up
-    ORDER BY h.checked_at DESC
-    LIMIT ?
-  ]], { limit })
-  local out = {}
-  for _, r in ipairs(rows) do
-    out[#out + 1] = {
-      monitor_id = r.monitor_id,
-      name = r.name,
-      url = r.url,
-      status = (r.is_up == 1 or r.is_up == "1") and "UP" or "DOWN",
-      status_code = r.status_code,
-      at = r.checked_at,
-    }
+local function pair_incidents(transitions)
+  local by_monitor = {}
+  for _, t in ipairs(transitions) do
+    local mid = tonumber(t.monitor_id)
+    if not by_monitor[mid] then by_monitor[mid] = { name = t.name, url = t.url, rows = {} } end
+    by_monitor[mid].rows[#by_monitor[mid].rows + 1] = t
   end
-  return out
+
+  local incidents = {}
+  for mid, data in pairs(by_monitor) do
+    local rows = data.rows
+    local i = 1
+    while i <= #rows do
+      local row_status = rows[i].status
+      if row_status == "DOWN" or row_status == "down" or row_status == 0 then
+        local started_at = rows[i].transitioned_at or rows[i].checked_at
+        local resolved_at = nil
+        local status_code = rows[i].status_code
+        local next = rows[i + 1]
+        if next then
+          local next_status = next.status
+          if next_status == "UP" or next_status == "up" or next_status == 1 then
+            resolved_at = next.transitioned_at or next.checked_at
+            i = i + 2
+          else
+            i = i + 1
+          end
+        else
+          i = i + 1
+        end
+        incidents[#incidents + 1] = {
+          monitor_id = mid,
+          name = data.name,
+          url = data.url,
+          status = resolved_at and "UP" or "DOWN",
+          started_at = started_at,
+          resolved_at = resolved_at,
+          status_code = status_code,
+        }
+      else
+        i = i + 1
+      end
+    end
+  end
+
+  table.sort(incidents, function(a, b) return (a.started_at or 0) > (b.started_at or 0) end)
+  return incidents
+end
+
+function M.get_incidents(monitor_ids, limit, role)
+  if runtime_config.is_checker() then return {} end
+  if monitor_ids and #monitor_ids == 0 then return {} end
+
+  role = role or runtime_config.role()
+  local transitions
+
+  if role == "central" then
+    local where = ""
+    local params = {}
+    if monitor_ids then
+      local placeholders = {}
+      for _ = 1, #monitor_ids do placeholders[#placeholders + 1] = "?" end
+      where = "WHERE ct.monitor_id IN (" .. table.concat(placeholders, ",") .. ")"
+      for _, id in ipairs(monitor_ids) do params[#params + 1] = id end
+    end
+    transitions = db_query([[
+      SELECT monitor_id, name, url, status, transitioned_at
+      FROM (
+        SELECT ct.id AS transition_id, ct.monitor_id, m.name, m.url, ct.status,
+               ct.transitioned_at,
+               ROW_NUMBER() OVER (
+                 PARTITION BY ct.monitor_id
+                 ORDER BY ct.transitioned_at DESC, ct.id DESC
+               ) AS rn
+        FROM consensus_transitions ct
+        JOIN monitors m ON m.id = ct.monitor_id
+        ]] .. where .. [[
+      ) limited
+      WHERE rn <= 40
+      ORDER BY monitor_id, transitioned_at, transition_id
+    ]], params)
+  else
+    local where = ""
+    local params = {}
+    if monitor_ids then
+      local placeholders = {}
+      for _ = 1, #monitor_ids do placeholders[#placeholders + 1] = "?" end
+      where = "AND h.monitor_id IN (" .. table.concat(placeholders, ",") .. ")"
+      for _, id in ipairs(monitor_ids) do params[#params + 1] = id end
+    end
+    transitions = db_query([[
+      SELECT monitor_id, name, url, status, status_code, transitioned_at
+      FROM (
+        SELECT h.transition_id, h.monitor_id, m.name, m.url,
+               h.status, h.status_code, h.transitioned_at,
+               ROW_NUMBER() OVER (
+                 PARTITION BY h.monitor_id
+                 ORDER BY h.transitioned_at DESC, h.transition_id DESC
+               ) AS rn
+        FROM (
+          SELECT id AS transition_id, monitor_id, checked_at AS transitioned_at,
+                 is_up AS status, status_code,
+                 LAG(is_up) OVER (
+                   PARTITION BY monitor_id ORDER BY checked_at, id
+                 ) AS prev_is_up
+          FROM check_history
+        ) h
+        JOIN monitors m ON m.id = h.monitor_id
+        WHERE h.prev_is_up IS NOT NULL AND h.status != h.prev_is_up
+          ]] .. where .. [[
+      ) limited
+      WHERE rn <= 40
+      ORDER BY monitor_id, transitioned_at, transition_id
+    ]], params)
+  end
+
+  local incidents = pair_incidents(transitions)
+  if limit then
+    local limited = {}
+    for i = 1, math.min(limit, #incidents) do limited[i] = incidents[i] end
+    return limited
+  end
+  return incidents
 end
 
 local function needs_attention(now, limit)
   local rows = db_query([[
-    SELECT id, name, url, is_up, last_status_code, last_response_time_ms, last_check_at,
-           interval_sec
-    FROM monitors
-    WHERE enabled = 1
-      AND (
-        is_up = 0 OR
-        last_check_at IS NULL OR
-        (? - last_check_at) > MAX(COALESCE(interval_sec, 300) * 2, 60)
-      )
-    ORDER BY CASE WHEN is_up = 0 THEN 0 ELSE 1 END,
-             CASE WHEN last_check_at IS NULL THEN 0 ELSE last_check_at END ASC
-    LIMIT ?
-  ]], { now, limit })
+    SELECT m.id, m.name, m.url, m.is_up, m.last_status_code, m.last_response_time_ms,
+           m.last_check_at, m.interval_sec,
+           cs.current_status,
+           EXISTS(SELECT 1 FROM node_reports nr WHERE nr.monitor_id = m.id) AS has_reports
+    FROM monitors m
+    LEFT JOIN cluster_monitor_state cs ON cs.monitor_id = m.id
+    WHERE m.enabled = 1
+  ]])
   local out = {}
   for _, r in ipairs(rows) do
+    local is_up = effective_is_up(r)
     local stale = not r.last_check_at or (now - r.last_check_at) > math.max((tonumber(r.interval_sec) or 300) * 2, 60)
-    out[#out + 1] = {
-      monitor_id = r.id,
-      name = r.name,
-      url = r.url,
-      reason = r.is_up == 0 and "DOWN" or (stale and "STALE" or "UNKNOWN"),
-      status = r.is_up == 0 and "DOWN" or "UNKNOWN",
-      status_code = r.last_status_code,
-      last_response_time_ms = r.last_response_time_ms,
-      last_check_at = r.last_check_at,
-    }
+    local needs = is_up == 0 or not r.last_check_at or stale
+    if needs then
+      out[#out + 1] = {
+        monitor_id = r.id,
+        name = r.name,
+        url = r.url,
+        reason = is_up == 0 and "DOWN" or (stale and "STALE" or "UNKNOWN"),
+        status = is_up == 0 and "DOWN" or "UNKNOWN",
+        status_code = r.last_status_code,
+        last_response_time_ms = r.last_response_time_ms,
+        last_check_at = r.last_check_at,
+      }
+    end
+  end
+  table.sort(out, function(a, b)
+    if (a.status == "DOWN") ~= (b.status == "DOWN") then return a.status == "DOWN" end
+    return (a.last_check_at or 0) < (b.last_check_at or 0)
+  end)
+  if #out > limit then
+    local limited = {}
+    for i = 1, limit do limited[i] = out[i] end
+    return limited
   end
   return out
 end
@@ -552,28 +830,6 @@ local function node_health(now)
   return out
 end
 
-local function central_incidents(limit)
-  local rows = db_query([[
-    SELECT cms.monitor_id, m.name, m.url, cms.current_status, cms.last_transition_at
-    FROM cluster_monitor_state cms
-    JOIN monitors m ON m.id = cms.monitor_id
-    WHERE cms.current_status = 'DOWN'
-    ORDER BY cms.last_transition_at DESC
-    LIMIT ?
-  ]], { limit })
-  local out = {}
-  for _, r in ipairs(rows) do
-    out[#out + 1] = {
-      monitor_id = r.monitor_id,
-      name = r.name,
-      url = r.url,
-      status = r.current_status,
-      at = r.last_transition_at,
-    }
-  end
-  return out
-end
-
 function M.get_global_stats(role)
   role = role or runtime_config.role()
   local now = os.time()
@@ -594,8 +850,8 @@ function M.get_global_stats(role)
       avg_uptime_30d = aggregates.avg_uptime_30d,
     },
     series = global_series(30),
-    incidents = role == "central" and central_incidents(20) or standalone_incidents(20),
-    attention = needs_attention(now, 10),
+    incidents = M.get_incidents(nil, 100, role),
+    attention = needs_attention(now, 100),
     slowest = slowest_monitors(now, 5),
     nodes = role == "central" and node_health(now) or {},
   }

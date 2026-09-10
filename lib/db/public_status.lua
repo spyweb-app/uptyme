@@ -6,6 +6,51 @@ local function numeric(value)
   return tonumber(value)
 end
 
+local function month_bounds(month)
+  if type(month) ~= "string" then return nil end
+  local year, month_number = month:match("^(%d%d%d%d)%-(%d%d)$")
+  year = tonumber(year)
+  month_number = tonumber(month_number)
+  if not year or not month_number or month_number < 1 or month_number > 12 then
+    return nil
+  end
+
+  local row = db_first([[
+    SELECT CAST(strftime('%s', ? || '-01 00:00:00') AS INTEGER) AS since,
+           CAST(strftime('%s', date(? || '-01 00:00:00', '+1 month')) AS INTEGER) AS until_ts
+  ]], { month, month })
+  if not row or not row.since or not row.until_ts then return nil end
+  return tonumber(row.since), tonumber(row.until_ts)
+end
+
+function M.resolve_window(opts)
+  opts = opts or {}
+  local month = opts.month
+  local days = opts.days
+  local group = opts.group
+
+  if month ~= nil then
+    local since, until_ = month_bounds(month)
+    if not since then return nil, "Invalid month" end
+    if days ~= nil then return nil, "month and days cannot be combined" end
+    group = group or "day"
+    if group ~= "day" and group ~= "hour" and group ~= "halfday" then
+      return nil, "Invalid group"
+    end
+    return since, until_, group
+  end
+
+  days = days or 30
+  if type(days) ~= "number" or days % 1 ~= 0 or days < 1 or days > 3650 then
+    return nil, "Invalid days"
+  end
+  group = group or "day"
+  if group ~= "day" and group ~= "hour" and group ~= "halfday" then
+    return nil, "Invalid group"
+  end
+  return os.time() - (days * 86400), os.time(), group
+end
+
 function M.normalize_status(is_up, status_code)
   is_up = numeric(is_up)
   status_code = numeric(status_code)
@@ -48,27 +93,20 @@ local function monitor_result(row, status)
 end
 
 local function monitor_page_row(page_id)
-  local now = os.time()
-  return db_first(string.format([[
-    SELECT sp.id AS page_id, sp.slug, sp.name AS public_name,
+  return db_first([[
+    SELECT sp.id AS page_id, sp.slug AS public_slug, sp.name AS public_name,
            sp.description, sp.type, sp.is_public,
            m.id AS monitor_id, m.name AS monitor_name, m.is_up,
            m.last_status_code, m.last_response_time_ms, m.last_check_at,
            m.interval_sec,
            cs.current_status, cs.last_transition_at,
-           EXISTS(SELECT 1 FROM node_reports nr WHERE nr.monitor_id = m.id) AS has_reports,
-           (SELECT COUNT(*) FROM check_history WHERE monitor_id = m.id AND checked_at >= %d AND is_up = 1) AS up_24h,
-           (SELECT COUNT(*) FROM check_history WHERE monitor_id = m.id AND checked_at >= %d) AS total_24h,
-           (SELECT COUNT(*) FROM check_history WHERE monitor_id = m.id AND checked_at >= %d AND is_up = 1) AS up_7d,
-           (SELECT COUNT(*) FROM check_history WHERE monitor_id = m.id AND checked_at >= %d) AS total_7d,
-           (SELECT COUNT(*) FROM check_history WHERE monitor_id = m.id AND checked_at >= %d AND is_up = 1) AS up_30d,
-           (SELECT COUNT(*) FROM check_history WHERE monitor_id = m.id AND checked_at >= %d) AS total_30d
+           EXISTS(SELECT 1 FROM node_reports nr WHERE nr.monitor_id = m.id) AS has_reports
     FROM status_pages sp
     JOIN monitors m ON m.id = sp.monitor_id
     LEFT JOIN cluster_monitor_state cs ON cs.monitor_id = m.id
     WHERE sp.id = ? AND sp.type = 'monitor' AND sp.is_public = 1
       AND m.enabled = 1
-  ]], now - 86400, now - 86400, now - 604800, now - 604800, now - 2592000, now - 2592000), { page_id })
+  ]], { page_id })
 end
 
 function M.get_public_monitor_status(page_id, month, days, group)
@@ -77,42 +115,28 @@ function M.get_public_monitor_status(page_id, month, days, group)
   if not row then return nil end
   local status = current_state(row)
 
-  local function calc_uptime(up, total)
-    up = tonumber(up) or 0
-    total = tonumber(total) or 0
-    return total > 0 and math.floor((up / total) * 100) or nil
-  end
+  local monitor_id = tonumber(row.monitor_id)
+  local monitors_db = require("lib.db.monitors")
+
+  local uptime = monitors_db.get_uptime({ monitor_id }, { 1, 7, 30 })
+  local u = uptime[monitor_id] or {}
 
   local result = monitor_result(row, status)
   result.description = row.description
   result.last_response_time_ms = tonumber(row.last_response_time_ms)
   result.last_status_code = tonumber(row.last_status_code)
   result.interval_sec = tonumber(row.interval_sec)
-  result.uptime_24h = calc_uptime(row.up_24h, row.total_24h)
-  result.uptime_7d = calc_uptime(row.up_7d, row.total_7d)
-  result.uptime_30d = calc_uptime(row.up_30d, row.total_30d)
-
-  local monitor_id = tonumber(row.monitor_id)
-  local monitors_db = require("lib.db.monitors")
+  result.uptime_24h = u[1]
+  result.uptime_7d = u[7]
+  result.uptime_30d = u[30]
 
   days = days or 30
   group = group or "day"
 
   if month then
-    local now = os.time()
-    local y, m = month:match("^(%d+)%-(%d+)$")
-    if y and m then
-      local month_start = os.time({ year = tonumber(y), month = tonumber(m), day = 1, hour = 0 })
-      local month_days = math.ceil((now - month_start) / 86400) + 31
-      local summary = monitors_db.get_summary(monitor_id, month_days, group)
-      local prefix = month .. "-"
-      local filtered = {}
-      for _, s in ipairs(summary) do
-        if s.period:sub(1, #prefix) == prefix then
-          filtered[#filtered + 1] = s
-        end
-      end
-      result.summary = filtered
+    local since, until_ = month_bounds(month)
+    if since then
+      result.summary = monitors_db.get_summary_range(monitor_id, since, until_, group)
     else
       result.summary = monitors_db.get_summary(monitor_id, days, group)
     end
@@ -120,7 +144,7 @@ function M.get_public_monitor_status(page_id, month, days, group)
     result.summary = monitors_db.get_summary(monitor_id, days, group)
   end
 
-  result.history = monitors_db.get_history(monitor_id, os.time(), 100)
+  result.incidents = monitors_db.get_incidents({ monitor_id }, nil)
 
   return result
 end
@@ -149,27 +173,6 @@ local function member_rows(page_id)
   ]], { page_id })
 end
 
-local function standalone_incident_starts(ids)
-  if #ids == 0 then return {} end
-  local placeholders = {}
-  for _ = 1, #ids do placeholders[#placeholders + 1] = "?" end
-  local rows = db_query([[
-    SELECT h.monitor_id, MIN(h.checked_at) AS started_at
-    FROM check_history h
-    WHERE h.monitor_id IN (]] .. table.concat(placeholders, ",") .. [[)
-      AND h.is_up = 0
-      AND h.checked_at > COALESCE((
-        SELECT MAX(recovery.checked_at)
-        FROM check_history recovery
-        WHERE recovery.monitor_id = h.monitor_id AND recovery.is_up = 1
-      ), 0)
-    GROUP BY h.monitor_id
-  ]], ids)
-  local out = {}
-  for _, row in ipairs(rows) do out[tonumber(row.monitor_id)] = row.started_at end
-  return out
-end
-
 function M.get_public_group_status(page_id, month)
   if runtime_config.is_checker() then return nil end
   local page = db_first([[SELECT id, slug, name, description, type, is_public
@@ -191,53 +194,33 @@ function M.get_public_group_status(page_id, month)
 
   if #members == 0 then overall = "unknown" end
 
+  local monitors_db = require("lib.db.monitors")
+
   if #ids > 0 then
-    local monitors_db = require("lib.db.monitors")
     local days = 30
-    local prefix
+    local since, until_
     if month then
-      local y, m = month:match("^(%d+)%-(%d+)$")
-      if y and m then
-        local now = os.time()
-        local month_start = os.time({ year = tonumber(y), month = tonumber(m), day = 1, hour = 0 })
-        days = math.ceil((now - month_start) / 86400) + 31
-        prefix = month .. "-"
-      end
+      since, until_ = month_bounds(month)
     end
 
-    local summary_rows = monitors_db.get_summary(ids, days, "day")
+    local summary_rows
+    if since then
+      summary_rows = monitors_db.get_summary_range(ids, since, until_, "day")
+    else
+      summary_rows = monitors_db.get_summary(ids, days, "day")
+    end
     local by_monitor = {}
     for _, row in ipairs(summary_rows) do
       local mid = tonumber(row.monitor_id)
-      if prefix and row.period:sub(1, #prefix) ~= prefix then
-        -- skip rows outside the requested month
-      else
-        if not by_monitor[mid] then by_monitor[mid] = {} end
-        by_monitor[mid][#by_monitor[mid] + 1] = row
-      end
+      if not by_monitor[mid] then by_monitor[mid] = {} end
+      by_monitor[mid][#by_monitor[mid] + 1] = row
     end
     for _, m in ipairs(members) do
       m.summary = by_monitor[m.monitor_id] or {}
     end
   end
 
-  local starts = standalone_incident_starts(ids)
-  local incidents = {}
-  for i, row in ipairs(rows) do
-    local status = members[i].status
-    if status == "down" then
-      local started_at = row.last_transition_at
-      if not (runtime_config.is_central() and tonumber(row.has_reports) == 1) then
-        started_at = starts[tonumber(row.monitor_id)]
-      end
-      incidents[#incidents + 1] = {
-        monitor_id = tonumber(row.monitor_id),
-        name = row.monitor_name,
-        status = "down",
-        started_at = started_at,
-      }
-    end
-  end
+  local incidents = monitors_db.get_incidents(ids, nil)
 
   return {
     name = page.name,
@@ -251,6 +234,43 @@ function M.get_public_group_status(page_id, month)
     unknown_count = counts.unknown,
     monitors = members,
     incidents = incidents,
+  }
+end
+
+function M.get_public_report(slug, opts, monitor_id)
+  if runtime_config.is_checker() then return nil, "Not found" end
+
+  local page = db_first([[
+    SELECT id, slug, type, monitor_id, is_public
+    FROM status_pages WHERE slug = ?
+  ]], { slug })
+  if not page or page.is_public ~= 1 then return nil, "Not found" end
+
+  local target_id
+  if page.type == "monitor" then
+    local row = db_first([[
+      SELECT id FROM monitors WHERE id = ? AND enabled = 1
+    ]], { page.monitor_id })
+    if not row then return nil, "Not found" end
+    target_id = tonumber(row.id)
+  else
+    if not monitor_id then return nil, "Not found" end
+    local member = db_first([[
+      SELECT 1 FROM status_page_monitors spm
+      JOIN monitors m ON m.id = spm.monitor_id
+      WHERE spm.status_page_id = ? AND spm.monitor_id = ? AND m.enabled = 1
+    ]], { page.id, monitor_id })
+    if not member then return nil, "Not found" end
+    target_id = monitor_id
+  end
+
+  local since, until_, group = M.resolve_window(opts)
+  if not since then return nil, until_ end
+
+  local monitors_db = require("lib.db.monitors")
+  return {
+    summary = monitors_db.get_summary_range(target_id, since, until_, group),
+    months = monitors_db.get_months(target_id),
   }
 end
 

@@ -4,6 +4,13 @@ cd "$(dirname "$0")/.."
 
 DB="data"
 MONITORS_FILE="scripts/monitors.txt"
+CENTRAL=0
+
+for arg in "$@"; do
+  case "$arg" in
+    --central) CENTRAL=1 ;;
+  esac
+done
 
 if [ ! -f "$DB" ]; then
   echo "Database not found at $DB"
@@ -16,7 +23,11 @@ if [ ! -f "$MONITORS_FILE" ]; then
   exit 1
 fi
 
-echo "Seeding $DB ..."
+if [ "$CENTRAL" -eq 1 ]; then
+  echo "Seeding $DB (central mode — consensus_transitions + node_reports + cluster_monitor_state) ..."
+else
+  echo "Seeding $DB (standalone mode) ..."
+fi
 
 TOTAL=0
 while IFS='|' read -r name url; do
@@ -140,6 +151,40 @@ JOIN fate f ON f.rn = d * 24 + s;
 DROP TABLE IF EXISTS temp.fate;
 ENDSQL
 
+  if [ "$CENTRAL" -eq 1 ]; then
+    NOW=$(sqlite3 "$DB" "SELECT cast(strftime('%s','now') as integer);")
+
+    sqlite3 "$DB" << ENDSQL
+-- node_reports: central's own vote for this monitor
+INSERT OR IGNORE INTO node_reports (monitor_id, node_id, is_up, status_code, response_time_ms, reported_at)
+SELECT $MON_ID, 1, is_up, status_code, response_time_ms, checked_at
+FROM check_history WHERE monitor_id = $MON_ID ORDER BY checked_at DESC LIMIT 1;
+
+-- consensus_transitions: detect state changes from check_history
+INSERT INTO consensus_transitions (monitor_id, status, transitioned_at)
+SELECT $MON_ID,
+       CASE WHEN is_up = 0 THEN 'DOWN' ELSE 'UP' END,
+       checked_at
+FROM (
+  SELECT is_up, checked_at,
+         LAG(is_up) OVER (ORDER BY checked_at) AS prev_is_up
+  FROM check_history WHERE monitor_id = $MON_ID
+)
+WHERE prev_is_up IS NOT NULL AND is_up != prev_is_up;
+
+-- cluster_monitor_state: current status = last check
+INSERT OR IGNORE INTO cluster_monitor_state (monitor_id, current_status, last_transition_at, updated_at)
+SELECT $MON_ID,
+       CASE WHEN is_up = 1 THEN 'UP' ELSE 'DOWN' END,
+       checked_at,
+       $NOW
+FROM check_history WHERE monitor_id = $MON_ID ORDER BY checked_at DESC LIMIT 1;
+ENDSQL
+
+    CT_COUNT=$(sqlite3 "$DB" "SELECT COUNT(*) FROM consensus_transitions WHERE monitor_id = $MON_ID;")
+    echo "    + consensus_transitions: $CT_COUNT rows"
+  fi
+
   TOTAL=$((TOTAL + 1))
 done < "$MONITORS_FILE"
 
@@ -148,3 +193,9 @@ echo "Done. Total monitors seeded: $TOTAL"
 echo ""
 COUNT=$(sqlite3 "$DB" "SELECT COUNT(*) FROM check_history")
 echo "Total check_history rows: $COUNT"
+if [ "$CENTRAL" -eq 1 ]; then
+  CT_TOTAL=$(sqlite3 "$DB" "SELECT COUNT(*) FROM consensus_transitions")
+  echo "Total consensus_transitions rows: $CT_TOTAL"
+  NR_TOTAL=$(sqlite3 "$DB" "SELECT COUNT(*) FROM node_reports")
+  echo "Total node_reports rows: $NR_TOTAL"
+fi

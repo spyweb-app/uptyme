@@ -20,7 +20,7 @@
       <div class="panel-body">
         <div class="stats-row">
           <div class="stat-box">
-            <span class="stat-box-value">{{ monitor.last_response_time_ms ?? '-' }}ms</span>
+            <span class="stat-box-value"><ResponseTime :ms="monitor.last_response_time_ms" /></span>
             <span class="stat-box-label">Response Time</span>
           </div>
           <div class="stat-box">
@@ -89,7 +89,7 @@
                   </span>
                 </td>
                 <td>{{ h.status_code }}</td>
-                <td>{{ h.response_time_ms != null ? h.response_time_ms + 'ms' : '-' }}</td>
+                <td><ResponseTime :ms="h.response_time_ms" /></td>
                 <td class="error-cell">{{ h.error_message || '-' }}</td>
               </tr>
             </tbody>
@@ -135,7 +135,9 @@ import UptimeTimeline from './UptimeTimeline.vue'
 import ResponseTimeChart from './ResponseTimeChart.vue'
 import MonitorForm from './MonitorForm.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
+import ResponseTime from './ResponseTime.vue'
 
+// state
 const emit = defineEmits<{
   close: []
 }>()
@@ -145,11 +147,50 @@ const store = useMonitorStore()
 const hasMore = ref(true)
 const confirmDelete = ref(false)
 const showEditForm = ref(false)
+const timelineRef = ref<InstanceType<typeof UptimeTimeline> | null>(null)
 
+// computed
 const monitor = computed(() => store.monitors.find(m => m.id === store.selectedMonitorId)!)
 
 const monHistory = computed(() => store.historyMap[store.selectedMonitorId!] || [])
 
+// guards
+function isBlocked(code: number | null) {
+  return code !== null && code >= 400 && code < 500
+}
+
+// helpers
+function uptimeColor(val: number | null) {
+  if (val === null) return ''
+  if (val >= 99) return 'text-green-400'
+  if (val >= 95) return 'text-yellow-400'
+  return 'text-red-400'
+}
+
+function formatInterval(sec: number) {
+  if (sec >= 3600) return Math.round(sec / 3600) + 'h'
+  if (sec >= 60) return Math.round(sec / 60) + 'm'
+  return sec + 's'
+}
+
+function checkStatusClass(h: Check) {
+  if (isBlocked(h.status_code)) return 'text-amber-400'
+  return h.is_up ? 'text-green-400' : 'text-red-400'
+}
+
+function checkStatusLabel(h: Check) {
+  if (isBlocked(h.status_code) && h.is_up) return 'BLOCKED'
+  return h.is_up ? 'UP' : 'DOWN'
+}
+
+function certColor(daysLeft: number | null) {
+  if (daysLeft === null) return ''
+  if (daysLeft > 30) return 'text-green-400'
+  if (daysLeft > 14) return 'text-yellow-400'
+  return 'text-red-400'
+}
+
+// lifecycle
 async function loadMore() {
   const last = monHistory.value[monHistory.value.length - 1]
   if (!last) return
@@ -178,42 +219,6 @@ function onEdited() {
   showEditForm.value = false
   showNotification('Monitor updated', 'success')
 }
-
-function uptimeColor(val: number | null) {
-  if (val === null) return ''
-  if (val >= 99) return 'text-green-400'
-  if (val >= 95) return 'text-yellow-400'
-  return 'text-red-400'
-}
-
-function formatInterval(sec: number) {
-  if (sec >= 3600) return Math.round(sec / 3600) + 'h'
-  if (sec >= 60) return Math.round(sec / 60) + 'm'
-  return sec + 's'
-}
-
-function isBlocked(code: number | null) {
-  return code !== null && code >= 400 && code < 500
-}
-
-function checkStatusClass(h: Check) {
-  if (isBlocked(h.status_code)) return 'text-amber-400'
-  return h.is_up ? 'text-green-400' : 'text-red-400'
-}
-
-function checkStatusLabel(h: Check) {
-  if (isBlocked(h.status_code) && h.is_up) return 'BLOCKED'
-  return h.is_up ? 'UP' : 'DOWN'
-}
-
-function certColor(daysLeft: number | null) {
-  if (daysLeft === null) return ''
-  if (daysLeft > 30) return 'text-green-400'
-  if (daysLeft > 14) return 'text-yellow-400'
-  return 'text-red-400'
-}
-
-const timelineRef = ref<InstanceType<typeof UptimeTimeline> | null>(null)
 
 async function refreshDetail() {
   await store.fetchHistory(store.selectedMonitorId!, 100)

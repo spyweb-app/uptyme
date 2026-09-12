@@ -73,7 +73,6 @@
 body {
   background: var(--base);
   color: var(--text);
-  overflow: hidden;
   font-family: inherit;
 }
 button {
@@ -331,3 +330,7 @@ h1 {
 
   &.copied { @apply text-[var(--up)]; }
 }
+
+.text-up { color: var(--up); }
+.text-down { color: var(--down); }
+.text-blocked { color: var(--blocked); }

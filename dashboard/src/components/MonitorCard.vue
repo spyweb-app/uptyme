@@ -18,7 +18,7 @@
         {{ monitor.enabled === 1 ? 'Running' : 'Paused' }}
       </div>
       <div class="stat" v-if="monitor.last_response_time_ms">
-        <span class="stat-value">{{ monitor.last_response_time_ms }}ms</span>
+        <span class="stat-value"><ResponseTime :ms="monitor.last_response_time_ms" /></span>
         <span class="stat-label">Response</span>
       </div>
       <div class="stat" v-if="monitor.uptime_24h">
@@ -49,7 +49,9 @@ import type { Monitor } from '~lib/api'
 import { useMonitorStore } from '~stores/monitors'
 import { showNotification } from '~stores/app'
 import StatusBadge from './StatusBadge.vue'
+import ResponseTime from './ResponseTime.vue'
 
+// state
 const props = defineProps<{
   monitor: Monitor
   readonly?: boolean
@@ -57,6 +59,7 @@ const props = defineProps<{
 
 const store = useMonitorStore()
 
+// computed
 const dotColor = computed(() => {
   if (props.monitor.enabled === 0) return 'paused'
   if (props.monitor.is_up === 1) return 'up'
@@ -65,6 +68,7 @@ const dotColor = computed(() => {
   return 'paused'
 })
 
+// helpers
 function uptimeClass(val: number) {
   if (val >= 99) return 'text-green-400'
   if (val >= 95) return 'text-yellow-400'
@@ -77,6 +81,7 @@ function formatInterval(sec: number) {
   return sec + 's'
 }
 
+// lifecycle
 async function toggleEnabled() {
   const newVal = props.monitor.enabled === 1 ? 0 : 1
   try {

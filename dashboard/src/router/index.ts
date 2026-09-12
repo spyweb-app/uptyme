@@ -26,6 +26,10 @@ async function wrapPage(pageModule: any): Promise<any> {
 
 const routes = [
   {
+    path: '/status/:slug',
+    component: () => import('~pages/PublicStatus.vue'),
+  },
+  {
     path: '/',
     component: () => import('~pages/Dashboard.vue').then(wrapPage),
   },
@@ -36,6 +40,11 @@ const routes = [
   {
     path: '/settings',
     component: () => import('~pages/Settings.vue').then(wrapPage),
+    meta: { checkerHidden: true },
+  },
+  {
+    path: '/status-pages',
+    component: () => import('~pages/StatusPages.vue').then(wrapPage),
     meta: { checkerHidden: true },
   },
   {

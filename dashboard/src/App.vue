@@ -3,12 +3,16 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, watch } from 'vue'
-import { RouterView } from 'vue-router'
+import { computed, onMounted, watch } from 'vue'
+import { RouterView, useRoute } from 'vue-router'
 import { loadNodeRole } from '~stores/app'
 import { keyVersion } from '~stores/auth'
 
-watch(keyVersion, () => { loadNodeRole() })
+const route = useRoute()
+const isPublicStatus = computed(() => route.path.startsWith('/status/'))
 
-onMounted(() => { loadNodeRole() })
+watch(keyVersion, () => { if (!isPublicStatus.value) loadNodeRole() })
+watch(() => route.path, () => { if (!isPublicStatus.value) loadNodeRole() })
+
+onMounted(() => { if (!isPublicStatus.value) loadNodeRole() })
 </script>

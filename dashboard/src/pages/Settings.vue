@@ -6,7 +6,7 @@
     </h1>
   </header>
 
-  <div class="content">
+  <div class="content settings-grid">
     <div class="settings-card">
       <div class="field">
         <label class="label">Instance Name</label>
@@ -46,7 +46,7 @@
       <button class="btn-primary mt-4" @click="saveSettings">Save</button>
     </div>
 
-    <div v-if="nodeRole === 'central'" class="settings-card mt-4">
+    <div v-if="nodeRole === 'central'" class="settings-card">
       <h2 class="card-title">Cluster</h2>
       <div class="field-row">
         <div class="field flex-1">
@@ -68,6 +68,39 @@
       <button class="btn-primary mt-4" @click="saveSettings">Save</button>
     </div>
 
+    <div class="settings-card">
+      <h2 class="card-title">Status Page</h2>
+      <div class="field">
+        <label class="label">Slug Style</label>
+        <select class="input" v-model="statusPageSlugStyle">
+          <option value="name_random">Name + Random (us-api-x7q2)</option>
+          <option value="random">Random Only (x7q2m)</option>
+        </select>
+        <span class="help-text">How slugs are generated for new status pages. Slugs are immutable once created.</span>
+      </div>
+      <div class="field-row">
+        <div class="field flex-1">
+          <label class="label">Random Length</label>
+          <input class="input" v-model.number="statusPageRandomLength" type="number" min="3" max="10" />
+          <span class="help-text">Length of the random suffix.</span>
+        </div>
+        <div class="field flex-1">
+          <label class="label">Name Max Length</label>
+          <input class="input" v-model.number="statusPageNameMaxLength" type="number" min="5" max="50" />
+          <span class="help-text">Max characters for name prefix.</span>
+        </div>
+      </div>
+      <div class="field">
+        <label class="label">Theme</label>
+        <select class="input" v-model="statusPageTheme">
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
+        <span class="help-text">Default theme for all public status pages.</span>
+      </div>
+      <button class="btn-primary mt-4" @click="saveSettings">Save</button>
+    </div>
+
   </div>
 </template>
 
@@ -80,39 +113,41 @@ import { keyVersion } from '~stores/auth'
 import { nodeRole, showNotification } from '~stores/app'
 import { isNonEmpty } from '~lib/validators'
 
+// state
 const instanceName = ref('')
+
 const retentionDays = ref(90)
+
 const cooldownSec = ref(300)
+
 const certThresholdDays = ref(14)
+
 const treat4xx = ref(false)
+
 const nodeLivenessSec = ref(90)
+
 const consensusMinNodes = ref(2)
+
 const consensusQuorumPct = ref(51)
+
+const statusPageSlugStyle = ref('name_random')
+
+const statusPageRandomLength = ref(5)
+
+const statusPageNameMaxLength = ref(20)
+
+const statusPageTheme = ref('light')
 
 const errors = reactive<Record<string, string>>({})
 
-function clearError(field: string) {
-  delete errors[field]
-}
-
+// guards
 watch(keyVersion, () => {
   loadSettings()
 })
 
-async function loadSettings() {
-  try {
-    const s = await api.getSettings()
-    instanceName.value = s.instance_name || 'PULSE'
-    retentionDays.value = parseInt(s.retention_days) || 90
-    cooldownSec.value = parseInt(s.alert_cooldown_sec) || 300
-    certThresholdDays.value = parseInt(s.cert_threshold_days) || 14
-    treat4xx.value = s.treat_4xx_as_down === '1'
-    nodeLivenessSec.value = parseInt(s.node_liveness_sec) || 90
-    consensusMinNodes.value = parseInt(s.consensus_min_nodes) || 2
-    consensusQuorumPct.value = parseInt(s.consensus_quorum_pct) || 51
-  } catch (e: any) {
-    console.error('Failed to load settings:', e.message)
-  }
+// helpers
+function clearError(field: string) {
+  delete errors[field]
 }
 
 function validate(): boolean {
@@ -129,6 +164,27 @@ function validate(): boolean {
   return Object.keys(errors).length === 0
 }
 
+// lifecycle
+async function loadSettings() {
+  try {
+    const s = await api.getSettings()
+    instanceName.value = s.instance_name || 'PULSE'
+    retentionDays.value = parseInt(s.retention_days) || 90
+    cooldownSec.value = parseInt(s.alert_cooldown_sec) || 300
+    certThresholdDays.value = parseInt(s.cert_threshold_days) || 14
+    treat4xx.value = s.treat_4xx_as_down === '1'
+    nodeLivenessSec.value = parseInt(s.node_liveness_sec) || 90
+    consensusMinNodes.value = parseInt(s.consensus_min_nodes) || 2
+    consensusQuorumPct.value = parseInt(s.consensus_quorum_pct) || 51
+    statusPageSlugStyle.value = s.status_page_slug_style || 'name_random'
+    statusPageRandomLength.value = parseInt(s.status_page_random_length) || 5
+    statusPageNameMaxLength.value = parseInt(s.status_page_name_max_length) || 20
+    statusPageTheme.value = s.status_page_theme || 'light'
+  } catch (e: any) {
+    console.error('Failed to load settings:', e.message)
+  }
+}
+
 async function saveSettings() {
   if (!validate()) return
 
@@ -138,6 +194,10 @@ async function saveSettings() {
     alert_cooldown_sec: String(cooldownSec.value),
     cert_threshold_days: String(certThresholdDays.value),
     treat_4xx_as_down: treat4xx.value ? '1' : '0',
+    status_page_slug_style: statusPageSlugStyle.value,
+    status_page_random_length: String(statusPageRandomLength.value),
+    status_page_name_max_length: String(statusPageNameMaxLength.value),
+    status_page_theme: statusPageTheme.value,
   }
 
   if (nodeRole.value === 'central') {
@@ -160,8 +220,12 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.settings-grid {
+  @apply grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-start;
+}
+
 .settings-card {
-  @apply bg-[var(--surface)] border border-[var(--border)] rounded-xl p-6 max-w-[480px];
+  @apply bg-[var(--surface)] border border-[var(--border)] rounded-xl p-6;
 }
 
 .card-title {

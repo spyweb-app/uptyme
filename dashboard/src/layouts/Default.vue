@@ -25,6 +25,10 @@
           <span class="i-mdi-server nav-icon" />
           Nodes
         </RouterLink>
+        <RouterLink class="nav-btn" active-class="active" to="/status-pages" v-if="nodeRole !== 'checker'">
+          <span class="i-mdi-web-box nav-icon" />
+          Status Pages
+        </RouterLink>
         <RouterLink class="nav-btn" active-class="active" to="/settings" v-if="nodeRole !== 'checker'">
           <span class="i-mdi-cog-outline nav-icon" />
           Settings
@@ -69,10 +73,14 @@
         <span class="i-mdi-server mobile-nav-icon" />
         <span>Nodes</span>
       </RouterLink>
-      <RouterLink class="mobile-nav-btn" active-class="active" to="/settings" v-if="nodeRole !== 'checker'">
+        <RouterLink class="mobile-nav-btn" active-class="active" to="/status-pages" v-if="nodeRole !== 'checker'">
+          <span class="i-mdi-web-box mobile-nav-icon" />
+          <span>Status</span>
+        </RouterLink>
+        <RouterLink class="mobile-nav-btn" active-class="active" to="/settings" v-if="nodeRole !== 'checker'">
         <span class="i-mdi-cog-outline mobile-nav-icon" />
         <span>Settings</span>
-      </RouterLink>
+        </RouterLink>
       <button class="mobile-nav-btn" @click="toggleTheme" :title="isDark ? 'Switch to light mode' : 'Switch to dark mode'">
         <span :class="isDark ? 'i-mdi-weather-sunny' : 'i-mdi-weather-night'" class="mobile-nav-icon" />
         <span>Theme</span>

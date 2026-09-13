@@ -2,7 +2,7 @@
   <div>
     <div class="timeline-header">
       <span class="timeline-title">Uptime Timeline</span>
-      <div class="timeline-tabs">
+      <div v-if="!initialData" class="timeline-tabs">
         <button
           v-for="d in days"
           :key="d"
@@ -35,100 +35,17 @@ import { api, type DaySummary } from '~lib/api'
 
 ChartJS.register(BarElement, LinearScale, CategoryScale, Tooltip)
 
+// state
 const props = defineProps<{
   monitorId: number
+  initialData?: DaySummary[]
 }>()
 
 const days = [1, 14, 30]
 const selectedDays = ref(14)
 const rawData = ref<DaySummary[]>([])
 
-onMounted(() => selectDays(selectedDays.value))
-
-type Slot = { x: string; y: number | null }
-
-function getGroupUnit(d: number): string {
-  if (d === 1) return 'hour'
-  if (d === 14) return 'halfday'
-  return 'day'
-}
-
-async function selectDays(d: number) {
-  selectedDays.value = d
-  rawData.value = await api.getSummary(props.monitorId, d, getGroupUnit(d))
-}
-
-function refresh() {
-  return selectDays(selectedDays.value)
-}
-
-defineExpose({ refresh })
-
-function generateSlots(): Slot[] {
-  const now = new Date()
-  const unit = getGroupUnit(selectedDays.value)
-  const slots: Slot[] = []
-
-  if (unit === 'hour') {
-    for (let i = 23; i >= 0; i--) {
-      const d = new Date(now)
-      d.setUTCHours(d.getUTCHours() - i, 0, 0, 0)
-      const key = d.toISOString().slice(0, 13) + ':00:00'
-      const match = rawData.value.find(r => r.period === key)
-      slots.push({
-        x: key,
-        y: match && match.total > 0 ? Math.round((match.up_count / match.total) * 100) : null,
-      })
-    }
-  } else if (unit === 'halfday') {
-      for (let i = 13; i >= 0; i--) {
-      const day = new Date(now)
-      day.setUTCDate(day.getUTCDate() - i)
-      const dayStr = day.toISOString().slice(0, 10)
-      const amKey = dayStr + 'T00:00:00'
-      const amMatch = rawData.value.find(r => r.period === amKey)
-      slots.push({
-        x: amKey,
-        y: amMatch && amMatch.total > 0 ? Math.round((amMatch.up_count / amMatch.total) * 100) : null,
-      })
-      const pmKey = dayStr + 'T12:00:00'
-      const pmMatch = rawData.value.find(r => r.period === pmKey)
-      slots.push({
-        x: pmKey,
-        y: pmMatch && pmMatch.total > 0 ? Math.round((pmMatch.up_count / pmMatch.total) * 100) : null,
-      })
-    }
-  } else {
-    for (let i = 29; i >= 0; i--) {
-      const d = new Date(now)
-      d.setUTCDate(d.getUTCDate() - i)
-      const key = d.toISOString().slice(0, 10)
-      const match = rawData.value.find(r => r.period === key)
-      slots.push({
-        x: key,
-        y: match && match.total > 0 ? Math.round((match.up_count / match.total) * 100) : null,
-      })
-    }
-  }
-
-  return slots
-}
-
-function formatLabel(period: string): string {
-  const unit = getGroupUnit(selectedDays.value)
-  if (unit === 'hour') {
-    return period.slice(11, 16)
-  }
-  if (unit === 'halfday') {
-    const isPM = period.slice(11, 19) === '12:00:00'
-    const d = new Date(period.slice(0, 10) + 'T00:00:00Z')
-    const date = d.toLocaleString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
-    return date + ' ' + (isPM ? 'PM' : 'AM')
-  }
-  const d = new Date(period + 'T00:00:00Z')
-  return d.toLocaleString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
-}
-
+// computed
 const slots = computed(() => generateSlots())
 
 const hasData = computed(() => slots.value.some(s => s.y !== null))
@@ -189,6 +106,112 @@ const chartOptions = computed(() => ({
     },
   },
 }))
+
+// helpers
+type Slot = { x: string; y: number | null }
+
+function getGroupUnit(d: number): string {
+  if (d === 1) return 'hour'
+  if (d === 14) return 'halfday'
+  return 'day'
+}
+
+function generateSlots(): Slot[] {
+  const now = new Date()
+  const unit = getGroupUnit(selectedDays.value)
+  const slots: Slot[] = []
+
+  function localDateKey(d: Date): string {
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${y}-${m}-${day}`
+  }
+
+  if (unit === 'hour') {
+    for (let i = 23; i >= 0; i--) {
+      const d = new Date(now)
+      d.setUTCHours(d.getUTCHours() - i, 0, 0, 0)
+      const key = d.toISOString().slice(0, 13) + ':00:00'
+      const match = rawData.value.find(r => r.period === key)
+      slots.push({
+        x: key,
+        y: match && match.total > 0 ? Math.round((match.up_count / match.total) * 100) : null,
+      })
+    }
+  } else if (unit === 'halfday') {
+    for (let i = 13; i >= 0; i--) {
+      const day = new Date(now)
+      day.setUTCDate(day.getUTCDate() - i)
+      const dayStr = day.toISOString().slice(0, 10)
+      const amKey = dayStr + 'T00:00:00'
+      const amMatch = rawData.value.find(r => r.period === amKey)
+      slots.push({
+        x: amKey,
+        y: amMatch && amMatch.total > 0 ? Math.round((amMatch.up_count / amMatch.total) * 100) : null,
+      })
+      const pmKey = dayStr + 'T12:00:00'
+      const pmMatch = rawData.value.find(r => r.period === pmKey)
+      slots.push({
+        x: pmKey,
+        y: pmMatch && pmMatch.total > 0 ? Math.round((pmMatch.up_count / pmMatch.total) * 100) : null,
+      })
+    }
+  } else {
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(now)
+      d.setDate(d.getDate() - i)
+      const key = localDateKey(d)
+      const match = rawData.value.find(r => r.period === key)
+      slots.push({
+        x: key,
+        y: match && match.total > 0 ? Math.round((match.up_count / match.total) * 100) : null,
+      })
+    }
+  }
+
+  return slots
+}
+
+function formatLabel(period: string): string {
+  const unit = getGroupUnit(selectedDays.value)
+  if (unit === 'hour') {
+    return period.slice(11, 16)
+  }
+  if (unit === 'halfday') {
+    const isPM = period.slice(11, 19) === '12:00:00'
+    const d = new Date(period.slice(0, 10) + 'T00:00:00Z')
+    const date = d.toLocaleString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+    return date + ' ' + (isPM ? 'PM' : 'AM')
+  }
+  const d = new Date(period + 'T00:00:00Z')
+  return d.toLocaleString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+}
+
+// lifecycle
+async function selectDays(d: number) {
+  if (props.initialData) return
+  selectedDays.value = d
+  rawData.value = await api.getSummary(props.monitorId, d, getGroupUnit(d))
+}
+
+function refresh() {
+  return selectDays(selectedDays.value)
+}
+
+defineExpose({ refresh })
+
+onMounted(() => {
+  if (props.initialData) {
+    rawData.value = props.initialData
+    const sample = props.initialData[0]?.period ?? ''
+    if (sample.includes('T12:') || sample.includes('T00:')) selectedDays.value = 14
+    else if (sample.length >= 13 && sample.includes('T')) selectedDays.value = 1
+    else selectedDays.value = 30
+  } else {
+    selectDays(selectedDays.value)
+  }
+})
 </script>
 
 <style scoped>

@@ -20,11 +20,7 @@ async function request<T>(url: string, opts?: RequestInit): Promise<T> {
   if (!json.success) throw new Error(json.error || 'Request failed')
 
   let data = json.data
-
-  if (data !== null && typeof data === 'object' && !Array.isArray(data) && Object.keys(data).length === 0) {
-    data = [] as unknown as T
-  }
-
+  if (data?.items && !Array.isArray(data.items)) data.items = []
   return data as T
 }
 
@@ -77,6 +73,9 @@ export interface DaySummary {
   period: string
   total: number
   up_count: number
+  down_checks: number
+  blocked_checks: number
+  avg_response_ms: number | null
 }
 
 export interface Settings {
@@ -123,6 +122,22 @@ export interface Health {
   headless: boolean
 }
 
+export interface StatusPage {
+  id: number
+  slug: string
+  type: 'monitor' | 'group'
+  monitor_id: number | null
+  name: string
+  description: string
+  is_public: number
+  created_at: number
+  updated_at: number
+}
+
+export interface StatusPageMonitor extends Monitor {
+  display_order: number
+}
+
 export interface StatsAggregates {
   total: number
   enabled: number
@@ -149,8 +164,8 @@ export interface StatsIncident {
   url: string
   status: string
   status_code: number | null
-  at: number | null
-  duration_sec: number | null
+  started_at: number | null
+  resolved_at: number | null
 }
 
 export interface StatsAttention {
@@ -304,4 +319,31 @@ export const api = {
 
   deleteNode: (id: number) =>
     request<{ deleted: boolean }>('/nodes/' + id, { method: 'DELETE' }),
+
+  listStatusPages: () => request<StatusPage[]>('/status_pages'),
+
+  createStatusPage: (data: Partial<StatusPage>) =>
+    request<StatusPage>('/status_pages', { method: 'POST', body: JSON.stringify(data) }),
+
+  updateStatusPage: (id: number, data: Partial<StatusPage>) =>
+    request<StatusPage>('/status_pages/' + id, { method: 'PUT', body: JSON.stringify(data) }),
+
+  deleteStatusPage: (id: number) =>
+    request<{ deleted: boolean }>('/status_pages/' + id, { method: 'DELETE' }),
+
+  listStatusPageMonitors: (id: number) =>
+    request<StatusPageMonitor[]>('/status_pages/' + id + '/monitors'),
+
+  addStatusPageMonitor: (id: number, monitor_id: number, display_order = 0) =>
+    request<{ status_page_id: number; monitor_id: number; display_order: number }>('/status_pages/' + id + '/monitors', {
+      method: 'POST', body: JSON.stringify({ monitor_id, display_order }),
+    }),
+
+  updateStatusPageMonitorOrder: (id: number, monitor_id: number, display_order: number) =>
+    request<{ status_page_id: number; monitor_id: number; display_order: number }>('/status_pages/' + id + '/monitors/' + monitor_id, {
+      method: 'PUT', body: JSON.stringify({ display_order }),
+    }),
+
+  removeStatusPageMonitor: (id: number, monitor_id: number) =>
+    request<{ deleted: boolean }>('/status_pages/' + id + '/monitors/' + monitor_id, { method: 'DELETE' }),
 }

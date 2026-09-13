@@ -83,43 +83,63 @@
 
         <section class="panel">
           <div class="panel-title">
-            Recent Incidents
-            <span class="panel-sub">latest transitions</span>
+            <span>Recent Incidents <span class="panel-sub">latest transitions</span></span>
+            <span v-if="incidentTotalPages > 1" class="panel-pagination">
+              <button class="page-btn" :disabled="incidentsPage <= 1" @click="incidentsPage--">
+                <span class="i-mdi-chevron-left" />
+              </button>
+              <span class="page-info">{{ incidentsPage }}/{{ incidentTotalPages }}</span>
+              <button class="page-btn" :disabled="incidentsPage >= incidentTotalPages" @click="incidentsPage++">
+                <span class="i-mdi-chevron-right" />
+              </button>
+            </span>
           </div>
           <div v-if="stats.incidents.length === 0" class="panel-empty">
             No recent incidents
           </div>
-          <ul v-else class="incident-list">
-            <li v-for="inc in stats.incidents" :key="inc.monitor_id + '-' + inc.at" class="incident-item">
-              <span class="incident-dot" :class="inc.status === 'UP' ? 'is-up' : 'is-down'" />
-              <RouterLink class="incident-name" :to="'/monitors'">{{ inc.name }}</RouterLink>
-              <span class="incident-url">{{ inc.url }}</span>
-              <span v-if="inc.status_code" class="incident-code">{{ inc.status_code }}</span>
-              <span class="incident-status" :class="inc.status === 'UP' ? 'is-up' : 'is-down'">
-                {{ inc.status }}
-              </span>
-              <span class="incident-at">{{ inc.status === 'DOWN' && inc.duration_sec != null ? 'Down for ' + formatDuration(inc.duration_sec) : (inc.at != null ? formatRelative(inc.at) : '—') }}</span>
-            </li>
-          </ul>
+          <template v-else>
+            <ul class="incident-list">
+              <li v-for="inc in paginatedIncidents" :key="inc.monitor_id + '-' + inc.started_at" class="incident-item">
+                <span class="incident-dot" :class="inc.status === 'UP' ? 'is-up' : 'is-down'" />
+                <RouterLink class="incident-name" :to="'/monitors'">{{ inc.name }}</RouterLink>
+                <span class="incident-url">{{ inc.url }}</span>
+                <span v-if="inc.status_code" class="incident-code">{{ inc.status_code }}</span>
+                <span class="incident-status" :class="inc.status === 'UP' ? 'is-up' : 'is-down'">
+                  {{ inc.status }}
+                </span>
+                <span class="incident-at">{{ inc.status === 'DOWN' && inc.started_at != null ? 'Down for ' + formatDuration(Date.now()/1000 - inc.started_at) : (inc.resolved_at != null ? formatRelative(inc.resolved_at) : '—') }}</span>
+              </li>
+            </ul>
+          </template>
         </section>
       </div>
 
       <div class="grid-2 action-grid">
         <section class="panel">
           <div class="panel-title">
-            Needs Attention
-            <span class="panel-sub">down or stale monitors</span>
+            <span>Needs Attention <span class="panel-sub">down or stale monitors</span></span>
+            <span v-if="attentionTotalPages > 1" class="panel-pagination">
+              <button class="page-btn" :disabled="attentionPage <= 1" @click="attentionPage--">
+                <span class="i-mdi-chevron-left" />
+              </button>
+              <span class="page-info">{{ attentionPage }}/{{ attentionTotalPages }}</span>
+              <button class="page-btn" :disabled="attentionPage >= attentionTotalPages" @click="attentionPage++">
+                <span class="i-mdi-chevron-right" />
+              </button>
+            </span>
           </div>
           <div v-if="stats.attention.length === 0" class="panel-empty">Everything looks healthy</div>
-          <ul v-else class="attention-list">
-            <li v-for="item in stats.attention" :key="item.monitor_id" class="attention-item">
-              <span class="incident-dot" :class="item.status === 'DOWN' ? 'is-down' : 'is-unknown'" />
-              <RouterLink class="incident-name" to="/monitors">{{ item.name }}</RouterLink>
-              <span class="attention-reason" :class="item.status === 'DOWN' ? 'is-down' : 'is-unknown'">{{ item.reason }}</span>
-              <span v-if="item.status_code" class="incident-code">{{ item.status_code }}</span>
-              <span class="incident-at">{{ item.last_check_at != null ? formatRelative(item.last_check_at) : 'Never checked' }}</span>
-            </li>
-          </ul>
+          <template v-else>
+            <ul class="attention-list">
+              <li v-for="item in paginatedAttention" :key="item.monitor_id" class="attention-item">
+                <span class="incident-dot" :class="item.status === 'DOWN' ? 'is-down' : 'is-unknown'" />
+                <RouterLink class="incident-name" to="/monitors">{{ item.name }}</RouterLink>
+                <span class="attention-reason" :class="item.status === 'DOWN' ? 'is-down' : 'is-unknown'">{{ item.reason }}</span>
+                <span v-if="item.status_code" class="incident-code">{{ item.status_code }}</span>
+                <span class="incident-at">{{ item.last_check_at != null ? formatRelative(item.last_check_at) : 'Never checked' }}</span>
+              </li>
+            </ul>
+          </template>
         </section>
 
         <section class="panel">
@@ -132,7 +152,7 @@
             <li v-for="item in stats.slowest" :key="item.monitor_id" class="slow-item">
               <RouterLink class="incident-name" to="/monitors">{{ item.name }}</RouterLink>
               <span class="incident-url">{{ item.url }}</span>
-              <span class="slow-value">{{ item.avg_response_time_ms }}ms</span>
+              <span class="slow-value"><ResponseTime :ms="item.avg_response_time_ms" /></span>
               <span class="slow-samples">{{ item.samples }} checks</span>
             </li>
           </ul>
@@ -179,31 +199,36 @@ import {
 import 'chart.js/auto'
 import { api, type GlobalStats } from '~lib/api'
 import LoadingOverlay from '~com/LoadingOverlay.vue'
+import ResponseTime from '~com/ResponseTime.vue'
 import { formatISODate, formatRelative } from '~lib/dates'
 import { nodeRole } from '~stores/app'
 
 ChartJS.register(CategoryScale, LinearScale, LineElement, PointElement, Tooltip, Legend, Filler)
 
+// state
 const loading = ref(false)
 const stats = ref<GlobalStats | null>(null)
 
-async function loadStats() {
-  loading.value = true
-  try {
-    stats.value = await api.getStats()
-  } catch {
-    stats.value = null
-  } finally {
-    loading.value = false
-  }
-}
+const PAGE_SIZE = 5
+const incidentsPage = ref(1)
+const attentionPage = ref(1)
 
-function uptimeCardClass(val: number | null): string {
-  if (val == null) return 'muted'
-  if (val >= 99) return 'up'
-  if (val >= 95) return 'warning'
-  return 'down'
-}
+// computed
+const incidentTotalPages = computed(() => Math.max(1, Math.ceil((stats.value?.incidents.length ?? 0) / PAGE_SIZE)))
+
+const attentionTotalPages = computed(() => Math.max(1, Math.ceil((stats.value?.attention.length ?? 0) / PAGE_SIZE)))
+
+const paginatedIncidents = computed(() => {
+  const all = stats.value?.incidents ?? []
+  const start = (incidentsPage.value - 1) * PAGE_SIZE
+  return all.slice(start, start + PAGE_SIZE)
+})
+
+const paginatedAttention = computed(() => {
+  const all = stats.value?.attention ?? []
+  const start = (attentionPage.value - 1) * PAGE_SIZE
+  return all.slice(start, start + PAGE_SIZE)
+})
 
 const chartData = computed(() => ({
   labels: (stats.value?.series ?? []).map((s) => formatISODate(s.period)),
@@ -212,14 +237,14 @@ const chartData = computed(() => ({
       label: 'Uptime %',
       data: (stats.value?.series ?? []).map((s) => s.uptime),
       fill: true,
-      borderColor: '#e11d48',
+      borderColor: '#22c55e',
       backgroundColor: (ctx: any) => {
         const chart = ctx.chart
         const { ctx: canvasCtx, chartArea } = chart
-        if (!chartArea) return 'rgba(225, 29, 72, 0.1)'
+        if (!chartArea) return 'rgba(34, 197, 94, 0.1)'
         const gradient = canvasCtx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom)
-        gradient.addColorStop(0, 'rgba(225, 29, 72, 0.15)')
-        gradient.addColorStop(1, 'rgba(225, 29, 72, 0)')
+        gradient.addColorStop(0, 'rgba(34, 197, 94, 0.15)')
+        gradient.addColorStop(1, 'rgba(34, 197, 94, 0)')
         return gradient
       },
       tension: 0.2,
@@ -265,6 +290,14 @@ const chartOptions = computed(() => {
   }
 })
 
+// helpers
+function uptimeCardClass(val: number | null): string {
+  if (val == null) return 'muted'
+  if (val >= 99) return 'up'
+  if (val >= 95) return 'warning'
+  return 'down'
+}
+
 function fmtPct(v: number | null): string {
   return v == null ? '—' : v.toFixed(1) + '%'
 }
@@ -279,6 +312,20 @@ function formatDuration(seconds: number): string {
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m`
   if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`
   return `${Math.floor(seconds / 86400)}d`
+}
+
+// lifecycle
+async function loadStats() {
+  loading.value = true
+  try {
+    stats.value = await api.getStats()
+    incidentsPage.value = 1
+    attentionPage.value = 1
+  } catch {
+    stats.value = null
+  } finally {
+    loading.value = false
+  }
 }
 
 onMounted(loadStats)
@@ -349,7 +396,7 @@ onMounted(loadStats)
 }
 
 .panel-title {
-  @apply text-[15px] font-semibold mb-1 flex items-baseline gap-2;
+  @apply text-[15px] font-semibold mb-1 flex items-center justify-between;
 }
 
 .panel-sub {
@@ -444,6 +491,26 @@ onMounted(loadStats)
 
 .action-grid {
   @apply mt-4;
+}
+
+.panel-pagination {
+  @apply flex items-center gap-1.5;
+}
+
+.page-btn {
+  @apply w-7 h-7 flex items-center justify-center border border-[var(--border)] bg-[var(--input)] text-[var(--text)] rounded-lg cursor-pointer transition-all duration-150;
+
+  &:hover:not(:disabled) {
+    @apply border-[var(--border-hover)] bg-[var(--hover)];
+  }
+
+  &:disabled {
+    @apply opacity-40 cursor-default;
+  }
+}
+
+.page-info {
+  @apply text-[12px] text-[var(--text-muted)] tabular-nums;
 }
 
 .attention-list, .slow-list, .node-health-list {

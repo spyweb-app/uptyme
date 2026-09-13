@@ -26,47 +26,54 @@ import { useMonitorStore } from '~stores/monitors'
 
 ChartJS.register(LineElement, PointElement, LinearScale, TimeScale, Tooltip, Filler)
 
+// state
 const props = defineProps<{
   monitorId: number
+  initialData?: { response_time_ms: number; checked_at: number }[]
 }>()
 
 const store = useMonitorStore()
 
+// computed
+const checks = computed(() => {
+  if (props.initialData) return props.initialData
+  return store.historyMap[props.monitorId] || []
+})
+
 const chartData = computed(() => {
-  const checks = store.historyMap[props.monitorId] || []
-  const points = checks
-    .filter(h => h.response_time_ms > 0)
+  const points = checks.value
+    .filter((h: any) => h.response_time_ms > 0)
     .reverse()
-    .map(h => ({ x: h.checked_at * 1000, y: h.response_time_ms }))
+    .map((h: any) => ({ x: h.checked_at * 1000, y: h.response_time_ms }))
+
   return {
     datasets: [{
       label: 'Response Time',
       data: points,
-    borderColor: '#e11d48',
-    backgroundColor: (ctx: any) => {
-      if (!ctx.chart.chartArea) return 'rgba(225, 29, 72, 0.1)'
-      const grad = ctx.chart.ctx.createLinearGradient(
-        0, ctx.chart.chartArea.top,
-        0, ctx.chart.chartArea.bottom
-      )
-      grad.addColorStop(0, 'rgba(225, 29, 72, 0.3)')
-      grad.addColorStop(0.6, 'rgba(225, 29, 72, 0.06)')
-      grad.addColorStop(1, 'rgba(225, 29, 72, 0)')
-      return grad
-    },
-    borderWidth: 2,
-    pointRadius: 0,
-    pointHitRadius: 8,
-    hoverRadius: 4,
-    tension: 0.3,
+      borderColor: '#e11d48',
+      backgroundColor: (ctx: any) => {
+        if (!ctx.chart.chartArea) return 'rgba(225, 29, 72, 0.1)'
+        const grad = ctx.chart.ctx.createLinearGradient(
+          0, ctx.chart.chartArea.top,
+          0, ctx.chart.chartArea.bottom
+        )
+        grad.addColorStop(0, 'rgba(225, 29, 72, 0.3)')
+        grad.addColorStop(0.6, 'rgba(225, 29, 72, 0.06)')
+        grad.addColorStop(1, 'rgba(225, 29, 72, 0)')
+        return grad
+      },
+      borderWidth: 2,
+      pointRadius: 0,
+      pointHitRadius: 8,
+      hoverRadius: 4,
+      tension: 0.3,
       fill: true,
-  }],
+    }],
   }
 })
 
 const hasData = computed(() => {
-  const checks = store.historyMap[props.monitorId] || []
-  return checks.some(h => h.response_time_ms > 0)
+  return checks.value.some((h: any) => h.response_time_ms > 0)
 })
 
 const chartOptions = computed(() => ({
@@ -101,7 +108,6 @@ const chartOptions = computed(() => ({
     },
   },
 }))
-
 </script>
 
 <style scoped>

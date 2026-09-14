@@ -2,7 +2,7 @@ local M = {}
 
 function M.json_response(status, data, err)
     local res = { success = status < 400, data = data, error = err }
-    return { status = status, body = res, headers = { ["Content-Type"] = "application/json" } }
+    return { status = status, body = json_encode(res, true), headers = { ["Content-Type"] = "application/json" } }
 end
 
 function M.id_or_nil(args)

@@ -10,7 +10,21 @@ function M.get_settings()
 end
 
 function M.update_settings(data)
+  -- Allowed setting keys (whitelist) to prevent arbitrary key injection
+  local allowed_keys = {
+    retention_days = true,
+    alert_cooldown_sec = true,
+    node_liveness_sec = true,
+    consensus_min_nodes = true,
+    consensus_quorum_pct = true,
+    treat_4xx_as_down = true,
+    instance_name = true,
+    status_page_theme = true,
+  }
   for key, value in pairs(data) do
+    if not allowed_keys[key] then
+      return nil, "Invalid setting key: " .. tostring(key)
+    end
     db_exec("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", { key, tostring(value) })
   end
   return M.get_settings()

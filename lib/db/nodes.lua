@@ -28,7 +28,7 @@ function M.create_node(data)
 end
 
 function M.update_node(id, data)
-  local sets, params = db_build_set_clause(data, { "name", "role" })
+  local sets, params = db_build_set_clause(data, { "name" })
   if #sets == 0 then return nil, "no fields to update" end
   table.insert(params, os.time())
   table.insert(params, id)

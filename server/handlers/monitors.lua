@@ -1,16 +1,9 @@
 local H = require("helpers")
 local db = require("lib.db")
 local import_export = require("lib.import_export")
-local runtime_config = require("lib.runtime_config")
+local validate = require("lib.validate")
 
 local M = {}
-
-local function reject_checker_mutation()
-    if runtime_config.is_checker() then
-        return H.json_response(403, nil, "This node is a checker — monitors are managed on the central node")
-    end
-    return nil
-end
 
 function M.export(self)
     local fmt = self.query.format or "json"
@@ -29,7 +22,7 @@ function M.export(self)
 end
 
 function M.import(self)
-    local denied = reject_checker_mutation()
+    local denied = H.reject_checker_mutation("Monitors")
     if denied then return denied end
 
     local entries = import_export.parse_import(self.body or "")
@@ -104,60 +97,51 @@ function M.list(self)
 end
 
 function M.create(self)
-    local denied = reject_checker_mutation()
+    local denied = H.reject_checker_mutation("Monitors")
     if denied then return denied end
 
-    local data = json_decode(self.body or "")
-    if not data or type(data) ~= "table" then
-        return H.json_response(400, nil, "Invalid JSON body")
-    end
+    local data, err = H.parse_body(self)
+    if not data then return err end
 
-    if not data.name or data.name == "" then
-        return H.json_response(400, nil, "name is required")
-    end
-    if not data.url or data.url == "" then
-        return H.json_response(400, nil, "url is required")
-    end
+    local validated, val_err = H.validate_or_400(data, validate.monitor_create)
+    if not validated then return val_err end
 
-    if db.get_by_url(data.url) then
+    if db.get_by_url(validated.url) then
         return H.json_response(409, nil, "A monitor with this URL already exists")
     end
 
-    local ok2, err = db.insert_monitor(data)
-    if not ok2 then
-        return H.json_response(409, nil, "Failed to create: " .. tostring(err))
+    local ok, db_err = db.insert_monitor(validated)
+    if not ok then
+        return H.json_response(409, nil, "Failed to create: " .. tostring(db_err))
     end
     db.bump_monitors_version()
 
-    local row = db.get_by_url(data.url)
+    local row = db.get_by_url(validated.url)
     return H.json_response(201, row)
 end
 
 function M.update(self)
-    local denied = reject_checker_mutation()
+    local denied = H.reject_checker_mutation("Monitors")
     if denied then return denied end
 
-    local id = H.id_or_nil(self.path_args)
-    if not id then
-        return H.json_response(400, nil, "Monitor ID required")
-    end
+    local id, id_err = H.require_id(self, "Monitor")
+    if not id then return id_err end
 
     if self.path_args[2] == "channels" then
-        local data = json_decode(self.body or "")
-        if not data or type(data) ~= "table" then
-            return H.json_response(400, nil, "Invalid JSON body")
-        end
+        local data, err = H.parse_body(self)
+        if not data then return err end
         db.set_monitor_channels(id, data)
         return H.json_response(200, { success = true })
     end
 
-    local data = json_decode(self.body or "")
-    if not data or type(data) ~= "table" then
-        return H.json_response(400, nil, "Invalid JSON body")
-    end
+    local data, parse_err = H.parse_body(self)
+    if not data then return parse_err end
+
+    local validated, val_err = H.validate_or_400(data, validate.monitor_update)
+    if not validated then return val_err end
 
     local updatable = { "name", "url", "method", "interval_sec", "timeout_ms", "check_value", "enabled", "desktop_notify", "check_cert", "cert_threshold_days" }
-    local sets, params = db.build_set_clause(data, updatable)
+    local sets, params = db.build_set_clause(validated, updatable)
 
     if #sets == 0 then
         return H.json_response(400, nil, "No fields to update")
@@ -174,22 +158,18 @@ function M.update(self)
 end
 
 function M.remove(self)
-    local denied = reject_checker_mutation()
+    local denied = H.reject_checker_mutation("Monitors")
     if denied then return denied end
 
-    local id = H.id_or_nil(self.path_args)
-    if not id then
-        return H.json_response(400, nil, "Monitor ID required")
-    end
+    local id, id_err = H.require_id(self, "Monitor")
+    if not id then return id_err end
 
-    local row = db.get(id)
-    if not row then
-        return H.json_response(404, nil, "Monitor not found")
-    end
+    local row, row_err = H.find_or_404(db.get, id, "Monitor")
+    if not row then return row_err end
 
     db.delete_monitor(id)
     db.bump_monitors_version()
-    return H.json_response(200, { deleted = true })
+    return H.deleted()
 end
 
 return M

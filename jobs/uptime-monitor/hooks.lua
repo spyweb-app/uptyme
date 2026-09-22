@@ -25,7 +25,7 @@ function before_fetch(request, ctx)
         prev_failures = m.consecutive_failures or 0,
         desktop_notify = m.desktop_notify or 0,
         check_cert = m.check_cert or 0,
-        cert_threshold_days = m.cert_threshold_days or 14,
+        cert_threshold_days = m.cert_threshold_days or 0,
         cert_last_check = m.cert_last_check,
     }
 

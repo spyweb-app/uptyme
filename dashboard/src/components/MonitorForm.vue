@@ -30,8 +30,8 @@
 
         <div v-if="form.check_cert === 1" class="field">
           <label class="label">Cert threshold (days)</label>
-          <input class="input" v-model.number="form.cert_threshold_days" type="number" min="1" max="365" />
-          <span class="field-hint">Alert when certificate expires within this many days.</span>
+          <input class="input" v-model.number="form.cert_threshold_days" type="number" min="0" max="365" />
+          <span class="field-hint">Alert when certificate expires within this many days. Put 0 to inherit global config.</span>
         </div>
 
         <div class="advanced-toggle" @click="showAdvanced = !showAdvanced">
@@ -181,7 +181,7 @@ const form = reactive({
   check_value: props.monitor?.check_value || '',
   desktop_notify: props.monitor?.desktop_notify ?? 0,
   check_cert: props.monitor?.check_cert ?? 0,
-  cert_threshold_days: props.monitor?.cert_threshold_days || 14,
+  cert_threshold_days: props.monitor?.cert_threshold_days || 0,
 })
 
 async function loadChannels() {

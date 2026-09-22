@@ -43,8 +43,8 @@
             <span class="stat-box-value">{{ monitor.last_status_code ?? '-' }}</span>
             <span class="stat-box-label">Last Status</span>
           </div>
-          <div v-if="monitor.check_cert === 1" class="stat-box">
-            <span class="stat-box-value" :class="certColor(monitor.cert_days_left)">{{ monitor.cert_days_left ?? '-' }}d</span>
+          <div v-if="monitor.check_cert === 1 && monitor.cert_not_after" class="stat-box">
+            <span class="stat-box-value" :class="certColor(monitor.cert_days_left)">{{ monitor.cert_days_left }}d</span>
             <span class="stat-box-label">Cert Expires</span>
           </div>
         </div>
@@ -56,7 +56,7 @@
           </div>
           <div class="cert-field">
             <span class="cert-label">Threshold</span>
-            <span class="cert-value">{{ monitor.cert_threshold_days }} days</span>
+            <span class="cert-value">{{ monitor.cert_threshold_days > 0 ? monitor.cert_threshold_days + ' days' : 'Instance default' }}</span>
           </div>
         </div>
 

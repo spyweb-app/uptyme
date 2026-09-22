@@ -30,7 +30,7 @@ function M._ensure_monitors()
         enabled                 INTEGER DEFAULT 1,
         desktop_notify          INTEGER DEFAULT 0,
         check_cert              INTEGER DEFAULT 0,
-        cert_threshold_days     INTEGER DEFAULT 14,
+        cert_threshold_days     INTEGER DEFAULT 0,
         cert_last_check         INTEGER,
         cert_not_after          TEXT,
         cert_days_left          INTEGER,
@@ -67,7 +67,7 @@ function M._ensure_settings()
   db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('monitors_version', '0')")
   db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('retention_days', '90')")
   db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('alert_cooldown_sec', '300')")
-  db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('instance_name', 'PULSE')")
+  db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('instance_name', 'UPTYME')")
   db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('cert_threshold_days', '14')")
   db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('consensus_min_nodes', '2')")
   db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('consensus_quorum_pct', '51')")

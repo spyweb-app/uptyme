@@ -499,8 +499,10 @@ function M.update_monitor_status_batch(rows)
 end
 
 function M.update_cert_info(monitor_id, not_after, days_left, checked_at)
-  db_exec("UPDATE monitors SET cert_not_after = ?, cert_days_left = ?, cert_last_check = ?, updated_at = ? WHERE id = ?",
-    { not_after, days_left, checked_at, os.time(), monitor_id })
+  db_exec(
+    "UPDATE monitors SET cert_not_after = ?, cert_days_left = ?, cert_last_check = ?, updated_at = ? WHERE id = ?",
+    { not_after or "", days_left or 0, checked_at, os.time(), monitor_id }
+  )
 end
 
 -- Retention

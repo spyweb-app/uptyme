@@ -5,6 +5,19 @@ local report_buffer = require("lib.report_buffer")
 
 local M = {}
 
+local function err_text(err)
+  if type(err) == "table" then
+    return tostring(err.message or err.error or "unknown error")
+  end
+  return tostring(err or "unknown error")
+end
+
+local function cert_threshold(s)
+  local own = tonumber(s.cert_threshold_days) or 0
+  if own >= 1 then return own end
+  return db.get_int("cert_threshold_days", 14)
+end
+
 local function cert_check(s, now)
   if s.check_cert ~= 1 then return nil end
   local last = s.cert_last_check
@@ -14,12 +27,12 @@ local function cert_check(s, now)
   local cert, err = tls_probe(host)
   if cert then
     db.update_cert_info(s.monitor_id, cert.not_after, cert.days_left, now)
-    if cert.days_left < s.cert_threshold_days then
+    if cert.days_left < cert_threshold(s) then
       alert.do_alert(s, "DOWN", "Certificate expires in " .. cert.days_left .. " days (" .. cert.subject .. ")")
     end
   else
     db.update_cert_info(s.monitor_id, nil, nil, now)
-    alert.do_alert(s, "DOWN", "TLS probe failed: " .. (err or "unknown"))
+    alert.do_alert(s, "DOWN", "TLS probe failed: " .. err_text(err))
   end
 end
 

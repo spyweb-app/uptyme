@@ -86,13 +86,14 @@ function M.get_or_create_central_node()
   return rows[1]
 end
 
-function M.get_nodes_with_reports(monitor_id)
+function M.get_nodes_with_reports(monitor_id, cutoff)
   return db_query([[
-    SELECT n.id, n.last_seen_at, COALESCE(r.is_up, 1) as is_up
+    SELECT n.id, r.is_up, r.reported_at
     FROM nodes n
-    LEFT JOIN node_reports r ON r.node_id = n.id AND r.monitor_id = ?
+    INNER JOIN node_reports r ON r.node_id = n.id AND r.monitor_id = ?
     WHERE n.active = 1
-  ]], { monitor_id })
+      AND r.reported_at >= ?
+  ]], { monitor_id, cutoff })
 end
 
 function M.upsert_node_report(monitor_id, node_id, data)

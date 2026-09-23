@@ -480,8 +480,6 @@ function test_consensus_initial_down_logs_transition()
     local nprefix, nsecret = cluster_auth.parse_token("bugfix1.secret")
     local checker = db.create_node({ name = "Checker", role = "checker", token_prefix = nprefix, token_hash = cluster_auth.hash_secret(nsecret) })
     spyweb.assert_ne(checker, nil)
-    -- Set last_seen_at so the node is considered live by consensus evaluator
-    db_exec("UPDATE nodes SET last_seen_at = ? WHERE id = ?", { os.time(), checker.id })
 
     -- Create a monitor with NO cluster_monitor_state row (simulates fresh upgrade)
     local m_id = db_query("INSERT INTO monitors (name, url) VALUES ('NoState', 'https://nostate.example.com') RETURNING id")[1].id
@@ -502,4 +500,91 @@ function test_consensus_initial_down_logs_transition()
     local transitions = db_query("SELECT * FROM consensus_transitions WHERE monitor_id = ? ORDER BY transitioned_at", { m_id })
     spyweb.assert_eq(#transitions, 1)
     spyweb.assert_eq(transitions[1].status, "DOWN")
+end
+
+function test_consensus_ignores_stale_reports()
+    db_exec("DELETE FROM node_reports")
+    db_exec("DELETE FROM cluster_monitor_state")
+    db_exec("DELETE FROM consensus_transitions")
+    db_exec("DELETE FROM nodes")
+    db_exec("DELETE FROM monitors")
+    -- defaults: min_nodes=2, quorum=51 (INSERT OR IGNORE already seeded these)
+
+    local consensus = require("lib.consensus")
+
+    local checker = H.make_checker_node("stale1", "secret")
+    spyweb.assert_ne(checker, nil)
+
+    local m_id = db_query("INSERT INTO monitors (name, url, interval_sec) VALUES ('StaleMon', 'https://stale.example.com', 300) RETURNING id")[1].id
+    db_exec("INSERT INTO cluster_monitor_state (monitor_id, current_status, last_transition_at, updated_at) VALUES (?, 'UP', ?, ?)",
+        { m_id, os.time(), os.time() })
+
+    -- DOWN report older than window (300 * 1.5 = 450)
+    db.upsert_node_report(m_id, checker.id, { is_up = 0, status_code = 500, response_time_ms = 1, error_message = "old" })
+    db_exec("UPDATE node_reports SET reported_at = ? WHERE monitor_id = ? AND node_id = ?",
+        { os.time() - 500, m_id, checker.id })
+
+    local result = consensus.evaluate(m_id, 0)
+    spyweb.assert_eq(result.transition, false)
+
+    local state = db.get_monitor_consensus_state(m_id)
+    spyweb.assert_eq(state.current_status, "UP")
+end
+
+function test_consensus_defaults_single_fresh_vote_flips_down()
+    db_exec("DELETE FROM node_reports")
+    db_exec("DELETE FROM cluster_monitor_state")
+    db_exec("DELETE FROM consensus_transitions")
+    db_exec("DELETE FROM nodes")
+    db_exec("DELETE FROM monitors")
+    -- default settings: min_nodes=2, quorum=51 — no eager overrides
+
+    local consensus = require("lib.consensus")
+
+    local checker = H.make_checker_node("single1", "secret")
+    spyweb.assert_ne(checker, nil)
+
+    local m_id = db_query("INSERT INTO monitors (name, url) VALUES ('SingleMon', 'https://single.example.com') RETURNING id")[1].id
+    db_exec("INSERT INTO cluster_monitor_state (monitor_id, current_status, last_transition_at, updated_at) VALUES (?, 'UP', ?, ?)",
+        { m_id, os.time(), os.time() })
+
+    db.upsert_node_report(m_id, checker.id, { is_up = 0, status_code = 500, response_time_ms = 900, error_message = "down" })
+
+    -- min(2, ceil(1 * 0.51)) = 1 → one fresh DOWN vote is enough (fail-open)
+    local result = consensus.evaluate(m_id, 0)
+    spyweb.assert_eq(result.transition, true)
+    spyweb.assert_eq(result.status, "DOWN")
+
+    local state = db.get_monitor_consensus_state(m_id)
+    spyweb.assert_eq(state.current_status, "DOWN")
+end
+
+function test_consensus_missing_report_is_not_up_vote()
+    db_exec("DELETE FROM node_reports")
+    db_exec("DELETE FROM cluster_monitor_state")
+    db_exec("DELETE FROM consensus_transitions")
+    db_exec("DELETE FROM nodes")
+    db_exec("DELETE FROM monitors")
+    -- defaults: min_nodes=2, quorum=51
+
+    local consensus = require("lib.consensus")
+
+    local reporting = H.make_checker_node("rep1", "secret")
+    local silent = H.make_checker_node("silent1", "secret")
+    spyweb.assert_ne(reporting, nil)
+    spyweb.assert_ne(silent, nil)
+
+    local m_id = db_query("INSERT INTO monitors (name, url) VALUES ('PartialMon', 'https://partial.example.com') RETURNING id")[1].id
+    db_exec("INSERT INTO cluster_monitor_state (monitor_id, current_status, last_transition_at, updated_at) VALUES (?, 'UP', ?, ?)",
+        { m_id, os.time(), os.time() })
+
+    db.upsert_node_report(m_id, reporting.id, { is_up = 0, status_code = 503, response_time_ms = 50, error_message = "fail" })
+
+    local rows = db.get_nodes_with_reports(m_id, os.time() - 450)
+    spyweb.assert_eq(#rows, 1)
+    spyweb.assert_eq(rows[1].id, reporting.id)
+
+    local result = consensus.evaluate(m_id, 0)
+    spyweb.assert_eq(result.transition, true)
+    spyweb.assert_eq(result.status, "DOWN")
 end

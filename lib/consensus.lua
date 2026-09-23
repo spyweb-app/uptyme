@@ -16,33 +16,32 @@ function M.evaluate(monitor_id, is_up_snapshot, settings)
 	end
 	
 	settings = settings or db.get_settings()
-	local liveness_sec = tonumber(settings.node_liveness_sec) or 90
 	local min_nodes = tonumber(settings.consensus_min_nodes) or 2
 	local quorum_pct = tonumber(settings.consensus_quorum_pct) or 51
-	
-	local rows = db.get_nodes_with_reports(monitor_id)
-	if #rows == 0 then return { transition = false } end
-	
-	local live_count = 0
+
+	local monitor = db.get(monitor_id)
+	local interval_sec = (monitor and tonumber(monitor.interval_sec)) or 300
+	local window = math.max(math.floor(interval_sec * 1.5), 60)
+
+	local rows = db.get_nodes_with_reports(monitor_id, now - window)
+
+	local live_count = #rows
 	local down_votes = 0
-	
+
 	for _, row in ipairs(rows) do
-		if row.last_seen_at and (now - row.last_seen_at) <= liveness_sec then
-			live_count = live_count + 1
-			if row.is_up == 0 then
-				down_votes = down_votes + 1
-			end
+		if row.is_up == 0 then
+			down_votes = down_votes + 1
 		end
 	end
-	
+
 	if live_count == 0 then return { transition = false } end
-	
+
 	local threshold = math.min(min_nodes, math.ceil(live_count * quorum_pct / 100))
 	local is_down = down_votes >= threshold
 	local new_status = is_down and "DOWN" or "UP"
-	
+
 	local state = db.get_monitor_consensus_state(monitor_id)
-	
+
 	if not state then
 		db.insert_consensus_state(monitor_id, new_status, now)
 		if new_status == "DOWN" then
@@ -50,9 +49,8 @@ function M.evaluate(monitor_id, is_up_snapshot, settings)
 		end
 		return { transition = false, status = new_status }
 	end
-	
+
 	if state.current_status ~= new_status then
-		local monitor = db.get(monitor_id)
 		if monitor then
 			notifier.dispatch(monitor_id, {
 				monitor = monitor.name,

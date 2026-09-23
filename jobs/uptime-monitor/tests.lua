@@ -2,6 +2,7 @@ local db = require("lib.db")
 local check = require("lib.check_pipeline")
 local alert = require("alert")
 local check_buffer = require("lib.check_buffer")
+local role_strategies = require("lib.role_strategies")
 
 -- =============================================================================
 -- Helpers
@@ -461,13 +462,13 @@ end
 function test_email_sendgrid_payload()
     local get = capture_http_post()
     local svc = require("lib.notifier.email")
-    svc.send({ provider = "sendgrid", to = "user@example.com", from = "alert@pulse", api_key = "SG.test" }, {
+    svc.send({ provider = "sendgrid", to = "user@example.com", from = "alert@uptyme", api_key = "SG.test" }, {
         monitor = "Test", url = "https://test.com", severity = "DOWN", message = "msg", timestamp = 1000
     })
     local c = get()
     spyweb.assert_eq(c.url, "https://api.sendgrid.com/v3/mail/send")
     spyweb.assert_eq(c.body.personalizations[1].to[1].email, "user@example.com")
-    spyweb.assert_eq(c.body.from.email, "alert@pulse")
+    spyweb.assert_eq(c.body.from.email, "alert@uptyme")
     spyweb.assert_eq(c.headers["Authorization"], "Bearer SG.test")
 end
 
@@ -671,4 +672,144 @@ function test_run_200_up_regardless_of_setting()
 
     spyweb.assert_eq(result.is_up, 1)
     spyweb.assert_eq(result.severity, "UP")
+end
+
+-- =============================================================================
+-- Certificate threshold — per-monitor value, else the instance-wide setting
+-- =============================================================================
+
+local function set_instance_cert_threshold(value)
+    db.ensure_schema()
+    db_exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('cert_threshold_days', ?)", { value })
+end
+
+local function make_cert_monitor(name, url, threshold)
+    db_exec("DELETE FROM monitors")
+    -- 0 (the default) means inherit the instance-wide threshold
+    if threshold == nil then
+        threshold = 0
+    end
+    return db_query("INSERT INTO monitors (name, url, check_cert, cert_threshold_days) VALUES (?, ?, 1, ?) RETURNING id", { name, url, threshold })[1].id
+end
+
+local function capture_alerts()
+    local alerts = {}
+    alert.do_alert = function(s, severity, message)
+        table.insert(alerts, message)
+    end
+    return alerts
+end
+
+local function stub_cert_probe(days_left)
+    tls_probe = function(host)
+        return {
+            subject = "CN=" .. host,
+            issuer = "CN=issuer",
+            serial = "1",
+            not_before = "",
+            not_after = "",
+            days_left = days_left,
+            fingerprint = "fingerprint",
+        }
+    end
+end
+
+-- Runs one cert check for a standalone node.
+local function run_cert_check(id, name, url, threshold, last_check)
+    local s = {
+        monitor_id = id,
+        monitor_name = name,
+        monitor_url = url,
+        check_cert = 1,
+        cert_threshold_days = threshold,
+        cert_last_check = last_check,
+        desktop_notify = 0,
+        was_up = true,
+        prev_failures = 0,
+    }
+    role_strategies.after_fetch("standalone", s, os.time(), {
+        is_up = 1,
+        status_code = 200,
+        response_time_ms = 5,
+        new_failures = 0,
+        err_msg = "ok",
+        severity = "UP",
+    })
+end
+
+function test_cert_alert_uses_monitor_threshold_over_instance()
+    set_instance_cert_threshold("30")
+    local id = make_cert_monitor("CertOwn", "https://cert-own.example.com", 10)
+    local alerts = capture_alerts()
+    stub_cert_probe(20)
+    -- 20 days left, monitor threshold 10: the instance-wide 30 must not apply
+    run_cert_check(id, "CertOwn", "https://cert-own.example.com", 10, nil)
+    spyweb.assert_eq(#alerts, 0)
+end
+
+function test_cert_alert_fires_below_monitor_threshold()
+    set_instance_cert_threshold("5")
+    local id = make_cert_monitor("CertSoon", "https://cert-soon.example.com", 30)
+    local alerts = capture_alerts()
+    stub_cert_probe(20)
+    -- 20 days left, monitor threshold 30: the instance-wide 5 must not apply
+    run_cert_check(id, "CertSoon", "https://cert-soon.example.com", 30, nil)
+    spyweb.assert_eq(#alerts, 1)
+    spyweb.assert_ne(string.find(alerts[1], "expires in 20 days"), nil)
+end
+
+-- A monitor threshold of 0 inherits the instance-wide value: 20 days left only
+-- alerts because the setting says 30, not because of any hardcoded default.
+function test_cert_alert_inherits_instance_threshold()
+    set_instance_cert_threshold("30")
+    local id = make_cert_monitor("CertInherit", "https://cert-inherit.example.com", 0)
+    local alerts = capture_alerts()
+    stub_cert_probe(20)
+    run_cert_check(id, "CertInherit", "https://cert-inherit.example.com", 0, nil)
+    spyweb.assert_eq(#alerts, 1)
+end
+
+function test_cert_alert_inherited_threshold_is_honoured()
+    set_instance_cert_threshold("5")
+    local id = make_cert_monitor("CertQuiet", "https://cert-quiet.example.com", 0)
+    local alerts = capture_alerts()
+    stub_cert_probe(20)
+    run_cert_check(id, "CertQuiet", "https://cert-quiet.example.com", 0, nil)
+    spyweb.assert_eq(#alerts, 0)
+end
+
+function test_cert_alert_without_instance_threshold_uses_default()
+    db.ensure_schema()
+    db_exec("DELETE FROM settings WHERE key = 'cert_threshold_days'")
+    local id = make_cert_monitor("CertNoSetting", "https://cert-no-setting.example.com", 0)
+    local alerts = capture_alerts()
+    stub_cert_probe(10)
+    run_cert_check(id, "CertNoSetting", "https://cert-no-setting.example.com", 0, nil)
+    spyweb.assert_eq(#alerts, 1)
+end
+
+function test_cert_check_skips_within_24_hours()
+    set_instance_cert_threshold("30")
+    local id = make_cert_monitor("CertRecent", "https://cert-recent.example.com", 0)
+    local alerts = capture_alerts()
+    stub_cert_probe(1)
+    run_cert_check(id, "CertRecent", "https://cert-recent.example.com", 0, os.time())
+    spyweb.assert_eq(#alerts, 0)
+end
+
+-- A failed probe alerts and clears the stored certificate info.
+function test_cert_probe_failure_alerts_and_clears_info()
+    set_instance_cert_threshold("30")
+    local id = make_cert_monitor("CertFail", "https://cert-fail.example.com", 0)
+    local alerts = capture_alerts()
+    tls_probe = function(host) return nil, { message = "tls handshake failed", kind = "tls" } end
+
+    run_cert_check(id, "CertFail", "https://cert-fail.example.com", 0, nil)
+
+    spyweb.assert_eq(#alerts, 1)
+    spyweb.assert_ne(string.find(alerts[1], "TLS probe failed"), nil)
+    local row = db_query("SELECT cert_not_after, cert_days_left, cert_last_check FROM monitors WHERE id = ?", { id })[1]
+    spyweb.assert_eq(row.cert_not_after, "")
+    spyweb.assert_eq(row.cert_days_left, 0)
+    spyweb.assert_ne(row.cert_last_check, nil)
 end

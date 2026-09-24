@@ -19,6 +19,21 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
+# Type-check first — fail fast, skip tests
+echo "Type-checking dashboard..."
+cd dashboard
+TC_STATUS=0
+if command -v bun &>/dev/null; then
+  bun run tc || TC_STATUS=$?
+else
+  npm run tc || TC_STATUS=$?
+fi
+cd ..
+if [ $TC_STATUS -ne 0 ]; then
+  echo "Type-check failed"
+  exit 1
+fi
+
 # Detect package manager
 if command -v bun &>/dev/null; then
   PKG="bun"

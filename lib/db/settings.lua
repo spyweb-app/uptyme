@@ -20,11 +20,18 @@ function M.update_settings(data)
     treat_4xx_as_down = true,
     instance_name = true,
     status_page_theme = true,
+    cert_threshold_days = true,
+    status_page_slug_style = true,
+    status_page_random_length = true,
+    status_page_name_max_length = true,
   }
-  for key, value in pairs(data) do
+  
+  for key in pairs(data) do
     if not allowed_keys[key] then
       return nil, "Invalid setting key: " .. tostring(key)
     end
+  end
+  for key, value in pairs(data) do
     db_exec("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", { key, tostring(value) })
   end
   return M.get_settings()

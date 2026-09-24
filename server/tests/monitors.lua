@@ -328,3 +328,103 @@ function test_export_csv()
     local ct = resp.headers["Content-Type"] or resp.headers["content-type"] or ""
     spyweb.assert_eq(ct, "text/csv")
 end
+
+-- =============================================================================
+-- Certificate threshold — 0 means "inherit the instance-wide value"
+-- =============================================================================
+
+local function clear_import_throttle()
+    global_store_delete("ratelimit:admin:monitors:import:127.0.0.1:start")
+    global_store_delete("ratelimit:admin:monitors:import:127.0.0.1:count")
+end
+
+local function stored_cert_threshold(url)
+    local row = db_query("SELECT cert_threshold_days FROM monitors WHERE url = ?", { url })[1]
+    if not row then return "no such monitor" end
+    return row.cert_threshold_days
+end
+
+local function csv_row_for(url)
+    local csv = import_export.export_csv(db_query("SELECT * FROM monitors WHERE url = ?", { url }))
+    local lines = {}
+    for line in csv:gmatch("[^\r\n]+") do table.insert(lines, line) end
+    -- cert_threshold_days is the last of ten columns
+    return import_export.parse_csv_row(lines[2])
+end
+
+function test_create_monitor_without_cert_threshold_defaults_to_zero()
+    clear_monitor_create_throttle()
+    db_exec("DELETE FROM monitors")
+    local resp = http_post(H.api("/monitors"), json_encode({ name = "NoCert", url = "https://no-cert.example.com", check_cert = 1 }), { ["Content-Type"] = "application/json" })
+    spyweb.assert_eq(resp.status, 201)
+    spyweb.assert_eq(stored_cert_threshold("https://no-cert.example.com"), 0)
+end
+
+function test_create_monitor_coerces_string_cert_threshold()
+    clear_monitor_create_throttle()
+    db_exec("DELETE FROM monitors")
+    local resp = http_post(H.api("/monitors"), json_encode({ name = "CertStr", url = "https://cert-str.example.com", check_cert = 1, cert_threshold_days = "30" }), { ["Content-Type"] = "application/json" })
+    spyweb.assert_eq(resp.status, 201)
+    spyweb.assert_eq(stored_cert_threshold("https://cert-str.example.com"), 30)
+end
+
+function test_create_monitor_rejects_bad_cert_threshold()
+    clear_monitor_create_throttle()
+    local resp = http_post(H.api("/monitors"), json_encode({ name = "CertBad", url = "https://cert-bad.example.com", cert_threshold_days = "400" }), { ["Content-Type"] = "application/json" })
+    spyweb.assert_eq(resp.status, 400)
+end
+
+function test_create_monitor_accepts_zero_cert_threshold()
+    clear_monitor_create_throttle()
+    db_exec("DELETE FROM monitors")
+    local resp = http_post(H.api("/monitors"), json_encode({ name = "CertZero", url = "https://cert-zero.example.com", check_cert = 1, cert_threshold_days = "0" }), { ["Content-Type"] = "application/json" })
+    spyweb.assert_eq(resp.status, 201)
+    spyweb.assert_eq(stored_cert_threshold("https://cert-zero.example.com"), 0)
+end
+
+function test_update_monitor_coerces_string_cert_threshold()
+    clear_monitor_create_throttle()
+    db_exec("DELETE FROM monitors")
+    local create = json_decode(http_post(H.api("/monitors"), json_encode({ name = "CertUpd", url = "https://cert-upd.example.com" }), { ["Content-Type"] = "application/json" }).body)
+    local resp = http_request({ method = "PUT", url = H.api("/monitors/" .. create.data.id), body = json_encode({ cert_threshold_days = "45" }), headers = { ["Content-Type"] = "application/json" } })
+    spyweb.assert_eq(resp.status, 200)
+    local body = json_decode(resp.body)
+    spyweb.assert_eq(body.data.cert_threshold_days, 45)
+end
+
+function test_export_csv_writes_zero_for_inherited_cert_threshold()
+    clear_monitor_create_throttle()
+    db_exec("DELETE FROM monitors")
+    http_post(H.api("/monitors"), json_encode({ name = "ExportNoCert", url = "https://export-no-cert.example.com" }), { ["Content-Type"] = "application/json" })
+    spyweb.assert_eq(csv_row_for("https://export-no-cert.example.com")[10], "0")
+end
+
+-- Export must not bake the instance-wide value into a monitor that inherits it.
+function test_export_csv_does_not_prefill_cert_threshold_from_settings()
+    clear_monitor_create_throttle()
+    db_exec("DELETE FROM monitors")
+    local saved = db.update_settings({ cert_threshold_days = "30" })
+    spyweb.assert_ne(saved, nil)
+    http_post(H.api("/monitors"), json_encode({ name = "Inherits", url = "https://inherits.example.com", check_cert = 1 }), { ["Content-Type"] = "application/json" })
+
+    spyweb.assert_eq(db.get_settings().cert_threshold_days, "30")
+    spyweb.assert_eq(csv_row_for("https://inherits.example.com")[10], "0")
+end
+
+function test_import_csv_empty_cert_threshold_stores_zero()
+    clear_import_throttle()
+    db_exec("DELETE FROM monitors")
+    local csv = "name,url,method,interval_sec,cert_threshold_days\nNoCertCell,https://no-cert-cell.example.com,HEAD,60,"
+    local resp = http_post(H.api("/monitors_import"), csv, { ["Content-Type"] = "text/csv" })
+    spyweb.assert_eq(resp.status, 200)
+    spyweb.assert_eq(stored_cert_threshold("https://no-cert-cell.example.com"), 0)
+end
+
+function test_import_csv_keeps_cert_threshold_value()
+    clear_import_throttle()
+    db_exec("DELETE FROM monitors")
+    local csv = "name,url,method,interval_sec,cert_threshold_days\nWithCert,https://with-cert.example.com,HEAD,60,30"
+    local resp = http_post(H.api("/monitors_import"), csv, { ["Content-Type"] = "text/csv" })
+    spyweb.assert_eq(resp.status, 200)
+    spyweb.assert_eq(stored_cert_threshold("https://with-cert.example.com"), 30)
+end

@@ -18,7 +18,10 @@ function M.update(self)
     local validated, val_err = H.validate_or_400(data, validate.settings_update)
     if not validated then return val_err end
 
-    local settings = db.update_settings(validated)
+    local settings, write_err = db.update_settings(validated)
+    if not settings then
+        return H.json_response(400, nil, write_err or "Failed to update settings")
+    end
     return H.json_response(200, settings)
 end
 

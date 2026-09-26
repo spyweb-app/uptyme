@@ -26,7 +26,7 @@
         v-for="n in store.nodes"
         :key="n.id"
         class="node-row"
-        @click="store.selectedNodeId = n.id"
+        @click="openNode(n)"
       >
         <label class="toggle" @click.stop>
           <input type="checkbox" :checked="n.active === 1" @change="toggleNode(n)" />
@@ -37,6 +37,27 @@
           <span class="node-id">{{ n.local_name || 'ID: ' + n.id }}</span>
         </div>
         <div class="node-details">
+          <input
+            v-if="activeNode?.id === n.id"
+            class="node-alert node-alert-input"
+            v-model.number="alertValue"
+            type="number"
+            min="0"
+            max="10080"
+            @click.stop
+            @keydown.enter="saveAlert"
+            @keydown.esc="activeNode = null; alertValue = null"
+            @blur="saveAlert"
+          />
+          <span
+            v-else
+            class="node-alert"
+            :class="{ 'node-alert-off': (n.stale_alert_minutes ?? 0) === 0 }"
+            :title="'Silent alert: click to edit. 0 = never.'"
+            @click.stop="editAlert(n)"
+          >
+            {{ (n.stale_alert_minutes ?? 0) === 0 ? 'alert off' : 'alert ' + (n.stale_alert_minutes ?? 0) + 'm' }}
+          </span>
           <span class="node-seen">{{ n.last_seen_at ? formatRelative(n.last_seen_at) : 'Never seen' }}</span>
           <span :class="n.active === 1 ? 'status-active' : 'status-inactive'">
             {{ n.active === 1 ? 'Active' : 'Inactive' }}
@@ -73,6 +94,41 @@ import NodeDetail from '~com/NodeDetail.vue'
 const store = useNodeStore()
 const showForm = ref(false)
 
+const activeNode = ref<ClusterNode | null>(null)
+const alertValue = ref<number | null>(null)
+
+function editAlert(n: ClusterNode) {
+  activeNode.value = n
+  alertValue.value = n.stale_alert_minutes ?? 0
+}
+
+async function saveAlert() {
+  if (!activeNode.value) return
+  const v = Number(alertValue.value)
+  const n = activeNode.value
+  if (Number.isInteger(v) && v >= 0 && v <= 10080) {
+    try {
+      await store.updateNode(n.id, { stale_alert_minutes: v })
+      n.stale_alert_minutes = v
+    } catch (e: any) {
+      showNotification(e.message || 'Failed to save alert', 'error')
+      store.load()
+    }
+  }
+  activeNode.value = null
+  setTimeout(() => {
+    if (!activeNode.value) alertValue.value = null
+  }, 150)
+}
+
+function openNode(n: ClusterNode) {
+  if (activeNode.value === null && alertValue.value === null) {
+    store.selectedNodeId = n.id
+    return
+  }
+  saveAlert()
+}
+
 watch(keyVersion, () => { store.load() })
 
 async function toggleNode(n: ClusterNode) {
@@ -84,8 +140,6 @@ async function toggleNode(n: ClusterNode) {
     store.load()
   }
 }
-
-
 
 onMounted(() => {
   store.load()
@@ -131,6 +185,35 @@ onMounted(() => {
 
 .node-seen {
   @apply text-xs text-[var(--text-muted)] tabular-nums;
+}
+
+.node-alert {
+  @apply text-xs font-medium uppercase tracking-wide px-2 py-1 rounded-md border border-[var(--border)] text-[var(--text-muted)] tabular-nums shrink-0;
+}
+
+.node-alert-off {
+  @apply opacity-60;
+}
+
+.node-alert-input {
+  @apply cursor-text;
+  appearance: textfield;
+  -moz-appearance: textfield;
+  background: transparent;
+  color: var(--text);
+  border-color: var(--accent);
+  width: 5.5rem;
+
+  &::-webkit-outer-spin-button,
+  &::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  &:focus {
+    @apply outline-none;
+    box-shadow: 0 0 0 1px var(--accent);
+  }
 }
 
 .node-created {

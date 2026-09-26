@@ -124,3 +124,20 @@ function test_update_settings_rejects_bad_value_for_known_key()
     local body = json_decode(resp.body)
     spyweb.assert_ne(string.find(body.error or "", "status_page_slug_style"), nil)
 end
+
+function test_update_settings_checker_stale_keys_persist()
+    local resp = put_settings({ checker_stale_alert = "1", checker_stale_channel_id = "3" })
+    spyweb.assert_eq(resp.status, 200)
+
+    local saved = db.get_settings()
+    spyweb.assert_eq(saved.checker_stale_alert, "1")
+    spyweb.assert_eq(saved.checker_stale_channel_id, "3")
+end
+
+function test_update_settings_checker_stale_channel_range()
+    local resp = put_settings({ checker_stale_channel_id = "-1" })
+    spyweb.assert_eq(resp.status, 400)
+
+    local bad_bool = put_settings({ checker_stale_alert = "maybe" })
+    spyweb.assert_eq(bad_bool.status, 400)
+end

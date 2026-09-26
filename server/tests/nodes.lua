@@ -25,3 +25,47 @@ function test_create_node_missing_name()
     local resp = http_post(H.api("/nodes"), json_encode({}), { ["Content-Type"] = "application/json" })
     spyweb.assert_eq(resp.status, 400)
 end
+
+function test_update_node_stale_alert_minutes_persists()
+    db_exec("DELETE FROM nodes WHERE role != 'central'")
+    local create = json_decode(http_post(H.api("/nodes"), json_encode({ name = "StaleNode" }), { ["Content-Type"] = "application/json" }).body)
+    local id = create.data.node.id
+
+    local resp = http_request({ method = "PUT", url = H.api("/nodes/" .. id), body = json_encode({ stale_alert_minutes = 15 }), headers = { ["Content-Type"] = "application/json" } })
+    spyweb.assert_eq(resp.status, 200)
+    local body = json_decode(resp.body)
+    spyweb.assert_eq(body.data.stale_alert_minutes, 15)
+
+    local list = json_decode(http_get(H.api("/nodes")).body)
+    local found
+    for _, n in ipairs(list.data) do
+        if n.id == id then found = n end
+    end
+    spyweb.assert_ne(found, nil)
+    spyweb.assert_eq(found.stale_alert_minutes, 15)
+end
+
+function test_update_node_stale_alert_minutes_range()
+    db_exec("DELETE FROM nodes WHERE role != 'central'")
+    local create = json_decode(http_post(H.api("/nodes"), json_encode({ name = "RangeNode" }), { ["Content-Type"] = "application/json" }).body)
+    local id = create.data.node.id
+
+    local too_high = http_request({ method = "PUT", url = H.api("/nodes/" .. id), body = json_encode({ stale_alert_minutes = 10081 }), headers = { ["Content-Type"] = "application/json" } })
+    spyweb.assert_eq(too_high.status, 400)
+
+    local negative = http_request({ method = "PUT", url = H.api("/nodes/" .. id), body = json_encode({ stale_alert_minutes = -1 }), headers = { ["Content-Type"] = "application/json" } })
+    spyweb.assert_eq(negative.status, 400)
+
+    local saved = db.get_node(id)
+    spyweb.assert_eq(saved.stale_alert_minutes, 0)
+end
+
+function test_update_node_stale_alert_minutes_accepts_string_number()
+    db_exec("DELETE FROM nodes WHERE role != 'central'")
+    local create = json_decode(http_post(H.api("/nodes"), json_encode({ name = "StrNode" }), { ["Content-Type"] = "application/json" }).body)
+    local id = create.data.node.id
+
+    local resp = http_request({ method = "PUT", url = H.api("/nodes/" .. id), body = json_encode({ stale_alert_minutes = "30" }), headers = { ["Content-Type"] = "application/json" } })
+    spyweb.assert_eq(resp.status, 200)
+    spyweb.assert_eq(db.get_node(id).stale_alert_minutes, 30)
+end

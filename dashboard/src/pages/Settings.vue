@@ -35,7 +35,7 @@
           <div class="card-body">
             <div class="field field-full">
               <label class="label" for="instance-name">Instance Name</label>
-              <input id="instance-name" class="input" :class="{ invalid: errors.name }" v-model="instanceName" placeholder="UPTYME" maxlength="100" @input="clearError('name')" />
+              <input id="instance-name" class="input" :class="{ invalid: errors.name }" v-model="instanceName" :placeholder="currentInstanceName" maxlength="100" @input="clearError('name')" />
               <span class="help-text">Used in alert payloads and email subjects.</span>
               <span v-if="errors.name" class="field-error">{{ errors.name }}</span>
             </div>
@@ -104,6 +104,26 @@
               <span class="help-text">How long without contact before a node is considered dead and excluded from consensus.</span>
               <span v-if="errors.nodeLiveness" class="field-error">{{ errors.nodeLiveness }}</span>
             </div>
+
+            <div class="switch-row field-full">
+              <div class="switch-text">
+                <span class="switch-label">Checker no-contact alert</span>
+                <span class="switch-help">Alert when an active checker has not contacted this node for its per-node alert window.</span>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" v-model="checkerStaleAlert" />
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+
+            <div class="field field-full">
+              <label class="label" for="checker-stale-channel">Alert Channel</label>
+              <select id="checker-stale-channel" class="input" v-model.number="checkerStaleChannelId" :disabled="enabledChannels.length === 0">
+                <option :value="0" disabled>Select channel</option>
+                <option v-for="ch in enabledChannels" :key="ch.id" :value="ch.id">{{ ch.name }}</option>
+              </select>
+              <span class="help-text">{{ enabledChannels.length === 0 ? 'No notification channels found.' : 'Where the checker no-contact alert is sent.' }}</span>
+            </div>
           </div>
         </section>
 
@@ -167,38 +187,28 @@ defineOptions({ layout: 'default' })
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { api, type Settings } from '~lib/api'
 import { keyVersion } from '~stores/auth'
-import { nodeRole, showNotification } from '~stores/app'
+import { nodeRole, showNotification, setInstanceName, instanceName as currentInstanceName } from '~stores/app'
+import { useChannelStore } from '~stores/channels'
 import { isNonEmpty } from '~lib/validators'
 
 // state
 const instanceName = ref('')
-
 const retentionDays = ref(90)
-
 const cooldownSec = ref(300)
-
 const certThresholdDays = ref(14)
-
 const treat4xx = ref(false)
-
 const nodeLivenessSec = ref(90)
-
 const consensusMinNodes = ref(2)
-
 const consensusQuorumPct = ref(51)
-
 const statusPageSlugStyle = ref('name_random')
-
 const statusPageRandomLength = ref(5)
-
 const statusPageNameMaxLength = ref(20)
-
 const statusPageTheme = ref('light')
-
+const checkerStaleAlert = ref(false)
+const checkerStaleChannelId = ref(0)
+const channelStore = useChannelStore()
 const loading = ref(true)
-
 const saving = ref(false)
-
 const errors = reactive<Record<string, string>>({})
 
 // last values applied from the server, used to detect and discard edits
@@ -207,6 +217,7 @@ const baseline = ref('')
 
 // derived
 const isCentral = computed(() => nodeRole.value === 'central')
+const enabledChannels = computed(() => channelStore.channels.filter(c => c.enabled === 1))
 
 function snapshot(): string {
   return JSON.stringify([
@@ -222,6 +233,8 @@ function snapshot(): string {
     Number(statusPageRandomLength.value),
     Number(statusPageNameMaxLength.value),
     statusPageTheme.value,
+    checkerStaleAlert.value,
+    Number(checkerStaleChannelId.value),
   ])
 }
 
@@ -230,6 +243,7 @@ const isDirty = computed(() => baseline.value !== snapshot())
 // guards
 watch(keyVersion, () => {
   loadSettings()
+  if (isCentral.value) channelStore.load()
 })
 
 // helpers
@@ -278,6 +292,8 @@ function applySettings(s: Settings) {
   statusPageRandomLength.value = parseInt(s.status_page_random_length) || 5
   statusPageNameMaxLength.value = parseInt(s.status_page_name_max_length) || 20
   statusPageTheme.value = s.status_page_theme || 'light'
+  checkerStaleAlert.value = s.checker_stale_alert === '1'
+  checkerStaleChannelId.value = parseInt(s.checker_stale_channel_id) || 0
 }
 
 async function loadSettings() {
@@ -321,6 +337,8 @@ async function saveSettings() {
     data.consensus_min_nodes = String(consensusMinNodes.value)
     data.consensus_quorum_pct = String(consensusQuorumPct.value)
     data.node_liveness_sec = String(nodeLivenessSec.value)
+    data.checker_stale_alert = checkerStaleAlert.value ? '1' : '0'
+    data.checker_stale_channel_id = String(checkerStaleChannelId.value)
   }
 
   saving.value = true
@@ -328,6 +346,7 @@ async function saveSettings() {
     await api.updateSettings(data)
     lastLoaded.value = { ...lastLoaded.value, ...data }
     baseline.value = snapshot()
+    setInstanceName(instanceName.value)
     showNotification('Settings saved', 'success')
   } catch (e: any) {
     showNotification(e.message || 'Failed to save settings', 'error')
@@ -338,6 +357,7 @@ async function saveSettings() {
 
 onMounted(() => {
   loadSettings()
+  if (isCentral.value) channelStore.load()
 })
 </script>
 

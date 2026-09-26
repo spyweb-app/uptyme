@@ -76,6 +76,8 @@ function M._ensure_settings()
   db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('status_page_random_length', '5')")
   db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('status_page_name_max_length', '20')")
   db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('status_page_theme', 'light')")
+  db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('checker_stale_alert', '0')")
+  db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('checker_stale_channel_id', '0')")
 end
 
 function M._ensure_notifications()
@@ -110,6 +112,8 @@ function M._ensure_nodes()
         token_hash    TEXT NOT NULL,
         last_seen_at  INTEGER,
         active        INTEGER DEFAULT 1,
+        stale_alert_minutes INTEGER NOT NULL DEFAULT 0,
+        stale_alerted_at    INTEGER,
         created_at    INTEGER DEFAULT (cast(strftime('%s','now') AS INTEGER)),
         updated_at    INTEGER DEFAULT (cast(strftime('%s','now') AS INTEGER))
     )

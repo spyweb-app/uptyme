@@ -9,7 +9,10 @@ function M.get_node(id)
 end
 
 function M.list_nodes()
-  return db_query("SELECT id, name, local_name, role, last_seen_at, active, created_at, updated_at FROM nodes WHERE role != 'central' ORDER BY created_at DESC")
+  return db_query([[
+    SELECT id, name, local_name, role, last_seen_at, active, stale_alert_minutes, stale_alerted_at, created_at, updated_at 
+    FROM nodes WHERE role != 'central' ORDER BY created_at DESC
+  ]])
 end
 
 function M.create_node(data)
@@ -28,7 +31,7 @@ function M.create_node(data)
 end
 
 function M.update_node(id, data)
-  local sets, params = db_build_set_clause(data, { "name" })
+  local sets, params = db_build_set_clause(data, { "name", "stale_alert_minutes" })
   if #sets == 0 then return nil, "no fields to update" end
   table.insert(params, os.time())
   table.insert(params, id)
@@ -50,8 +53,7 @@ end
 function M.get_node_reports(node_id, limit)
   limit = limit or 50
   return db_query([[
-    SELECT r.monitor_id, r.is_up, r.status_code, r.response_time_ms, r.error_message, r.reported_at,
-           m.name as monitor_name, m.url as monitor_url
+    SELECT r.monitor_id, r.is_up, r.status_code, r.response_time_ms, r.error_message, r.reported_at, m.name as monitor_name, m.url as monitor_url
     FROM node_reports r
     LEFT JOIN monitors m ON m.id = r.monitor_id
     WHERE r.node_id = ?
@@ -65,11 +67,15 @@ function M.update_node_local_name(node_id, name)
 end
 
 function M.touch_node(id)
-  db_exec("UPDATE nodes SET last_seen_at = ?, updated_at = ? WHERE id = ?", {
+  db_exec("UPDATE nodes SET last_seen_at = ?, stale_alerted_at = NULL, updated_at = ? WHERE id = ?", {
     os.time(),
     os.time(),
     id,
   })
+end
+
+function M.set_node_stale_alerted(id, ts)
+  db_exec("UPDATE nodes SET stale_alerted_at = ? WHERE id = ?", { ts, id })
 end
 
 function M.get_or_create_central_node()

@@ -1,4 +1,5 @@
 import { apiKey, showAuthModal } from '~stores/auth'
+import { instanceName } from '~stores/app'
 
 const BASE = '/api/v'
 
@@ -100,6 +101,7 @@ export interface ClusterNode {
   active: number
   created_at: number
   updated_at: number
+  stale_alert_minutes?: number
 }
 
 export interface NodeDetail extends ClusterNode {
@@ -264,7 +266,7 @@ export const api = {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = 'pulse-monitors.' + format
+    a.download = instanceName.value + '-monitors.' + format
     a.click()
     URL.revokeObjectURL(url)
   },

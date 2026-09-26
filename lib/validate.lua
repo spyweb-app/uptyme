@@ -140,6 +140,7 @@ end
 
 -- ─── Schemas ────────────────────────────────────────────────
 
+-- stylua: ignore
 local MONITOR = {
     name                = { type = "string", required = true, max = 255 },
     url                 = { type = "string", coerce = false, required = true, url = true },
@@ -153,6 +154,7 @@ local MONITOR = {
     cert_threshold_days = { type = "int", min = 0, max = 365, default = 0 },
 }
 
+-- stylua: ignore
 local CHANNEL = {
     name   = { type = "string", required = true, max = 255 },
     type   = { type = "string", required = true, enum = { "webhook", "discord", "slack", "ntfy", "email" } },
@@ -160,6 +162,7 @@ local CHANNEL = {
     enabled = { type = "bool", default = 1 },
 }
 
+-- stylua: ignore
 local SETTINGS = {
     instance_name               = { type = "string", max = 100 },
     status_page_slug_style      = { type = "string", enum = { "name_random", "random" } },
@@ -173,12 +176,17 @@ local SETTINGS = {
     status_page_random_length   = { type = "int", min = 3, max = 10 },
     status_page_name_max_length = { type = "int", min = 5, max = 50 },
     treat_4xx_as_down           = { type = "bool" },
+    checker_stale_alert         = { type = "bool" },
+    checker_stale_channel_id    = { type = "int", min = 0, max = 999999 },
 }
 
+-- stylua: ignore
 local NODE = {
     name = { type = "string", required = true, nonempty = "name must be a non-empty string" },
+    stale_alert_minutes = { type = "int", min = 0, max = 10080 },
 }
 
+-- stylua: ignore
 local STATUS_PAGE = {
     type        = { type = "string", required = true, enum = { "monitor", "group" } },
     name        = { type = "string", required = true, max = 255, nonempty = "name must not be empty" },
@@ -187,6 +195,7 @@ local STATUS_PAGE = {
     is_public   = { type = "bool" },
 }
 
+-- stylua: ignore
 local REPORT = {
     monitor_id       = { type = "int", required = true },
     is_up            = { type = "bool", required = true },

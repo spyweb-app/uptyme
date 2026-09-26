@@ -24,6 +24,8 @@ function M.update_settings(data)
     status_page_slug_style = true,
     status_page_random_length = true,
     status_page_name_max_length = true,
+    checker_stale_alert = true,
+    checker_stale_channel_id = true,
   }
   
   for key in pairs(data) do

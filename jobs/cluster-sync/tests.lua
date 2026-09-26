@@ -684,3 +684,224 @@ function test_logger_connectivity_transition_logging()
 
     restore()
 end
+
+-- Stale-checker watcher (defer.lua on_finished) tests
+
+local function seed_node(opts)
+    opts = opts or {}
+    local prefix = opts.prefix or "stale01"
+    local minutes = opts.minutes == nil and 5 or opts.minutes
+    local active = opts.active == nil and 1 or opts.active
+    if opts.last_seen_at == nil then
+        db_exec(
+            "INSERT INTO nodes (name, role, token_prefix, token_hash, active, stale_alert_minutes) VALUES (?, 'checker', ?, '', ?, ?)",
+            { opts.name or "Checker One", prefix, active, minutes })
+    else
+        local alerted = opts.alerted_at or "NULL"
+        db_exec(string.format(
+            "INSERT INTO nodes (name, role, token_prefix, token_hash, active, last_seen_at, stale_alert_minutes, stale_alerted_at) VALUES (?, 'checker', ?, '', ?, ?, ?, %s)",
+            alerted),
+            { opts.name or "Checker One", prefix, active, opts.last_seen_at, minutes })
+    end
+    return db.get_node_by_prefix(prefix)
+end
+
+local function seed_channel(enabled)
+    local ch = db.create_channel({ name = "Stale", type = "webhook", config = "{}", enabled = enabled })
+    return ch
+end
+
+local function set_stale_settings(enabled, channel_id)
+    db.update_settings({
+        checker_stale_alert = enabled and "1" or "0",
+        checker_stale_channel_id = tostring(channel_id or 0),
+    })
+end
+
+local function stub_dispatch(ok, err)
+    local notifier = require("lib.notifier")
+    local orig = notifier.dispatch_to_channel
+    local calls = {}
+    notifier.dispatch_to_channel = function(channel_id, alert)
+        calls[#calls + 1] = { channel_id = channel_id, alert = alert }
+        return ok, err
+    end
+    return calls, function() notifier.dispatch_to_channel = orig end
+end
+
+local function stub_logger_module()
+    local logger = require("lib.logger")
+    local orig_info, orig_warn = logger.info, logger.warn
+    local infos, warns = {}, {}
+    logger.info = function(msg, cat) infos[#infos + 1] = { msg = msg, cat = cat } end
+    logger.warn = function(msg, cat) warns[#warns + 1] = { msg = msg, cat = cat } end
+    return infos, warns, function()
+        logger.info = orig_info
+        logger.warn = orig_warn
+    end
+end
+
+function test_on_finished_noop_when_not_central()
+    set_bootstrap(true, "node1.secret", "https://central.example.com", "checker")
+    local ch = seed_channel(1)
+    set_stale_settings(true, ch.id)
+    seed_node({ last_seen_at = os.time() - 600 })
+    local calls, restore = stub_dispatch(true)
+
+    on_finished()
+    spyweb.assert_eq(#calls, 0)
+    restore()
+end
+
+function test_on_finished_noop_when_disabled()
+    set_bootstrap(true, "tok", "https://central.example.com", "central")
+    local ch = seed_channel(1)
+    set_stale_settings(false, ch.id)
+    seed_node({ last_seen_at = os.time() - 600 })
+    local calls, restore = stub_dispatch(true)
+
+    on_finished()
+    spyweb.assert_eq(#calls, 0)
+    restore()
+end
+
+function test_on_finished_noop_when_channel_zero()
+    set_bootstrap(true, "tok", "https://central.example.com", "central")
+    set_stale_settings(true, 0)
+    seed_node({ last_seen_at = os.time() - 600 })
+    local calls, restore = stub_dispatch(true)
+
+    on_finished()
+    spyweb.assert_eq(#calls, 0)
+    restore()
+end
+
+function test_on_finished_noop_when_channel_missing_or_disabled()
+    set_bootstrap(true, "tok", "https://central.example.com", "central")
+
+    -- missing channel row
+    set_stale_settings(true, 999)
+    seed_node({ prefix = "staleA", last_seen_at = os.time() - 600 })
+    local calls, restore = stub_dispatch(true)
+    on_finished()
+    spyweb.assert_eq(#calls, 0)
+    restore()
+
+    -- disabled channel row
+    local ch = seed_channel(0)
+    set_stale_settings(true, ch.id)
+    local calls2, restore2 = stub_dispatch(true)
+    on_finished()
+    spyweb.assert_eq(#calls2, 0)
+    restore2()
+end
+
+function test_on_finished_noop_when_minutes_zero()
+    set_bootstrap(true, "tok", "https://central.example.com", "central")
+    local ch = seed_channel(1)
+    set_stale_settings(true, ch.id)
+    seed_node({ minutes = 0, last_seen_at = os.time() - 60000 })
+    local calls, restore = stub_dispatch(true)
+
+    on_finished()
+    spyweb.assert_eq(#calls, 0)
+    restore()
+end
+
+function test_on_finished_noop_when_never_seen()
+    set_bootstrap(true, "tok", "https://central.example.com", "central")
+    local ch = seed_channel(1)
+    set_stale_settings(true, ch.id)
+    seed_node({ last_seen_at = nil })
+    local calls, restore = stub_dispatch(true)
+
+    on_finished()
+    spyweb.assert_eq(#calls, 0)
+    restore()
+end
+
+function test_on_finished_noop_when_fresh()
+    set_bootstrap(true, "tok", "https://central.example.com", "central")
+    local ch = seed_channel(1)
+    set_stale_settings(true, ch.id)
+    seed_node({ minutes = 5, last_seen_at = os.time() - 60 })
+    local calls, restore = stub_dispatch(true)
+
+    on_finished()
+    spyweb.assert_eq(#calls, 0)
+    restore()
+end
+
+function test_on_finished_noop_when_inactive()
+    set_bootstrap(true, "tok", "https://central.example.com", "central")
+    local ch = seed_channel(1)
+    set_stale_settings(true, ch.id)
+    seed_node({ active = 0, last_seen_at = os.time() - 600 })
+    local calls, restore = stub_dispatch(true)
+
+    on_finished()
+    spyweb.assert_eq(#calls, 0)
+    restore()
+end
+
+function test_on_finished_fires_once_then_cooldown()
+    set_bootstrap(true, "tok", "https://central.example.com", "central")
+    local ch = seed_channel(1)
+    set_stale_settings(true, ch.id)
+    local node = seed_node({ minutes = 5, last_seen_at = os.time() - 600 })
+    local calls, restore = stub_dispatch(true)
+    local infos, warns, restore_logger = stub_logger_module()
+
+    -- stale, never alerted → fires
+    on_finished()
+    spyweb.assert_eq(#calls, 1)
+    spyweb.assert_eq(calls[1].channel_id, ch.id)
+    spyweb.assert_eq(calls[1].alert.severity, "DOWN")
+    spyweb.assert_ne(db.get_node(node.id).stale_alerted_at, nil)
+    spyweb.assert_eq(#infos, 1)
+    spyweb.assert_eq(infos[1].cat, "checker.stale")
+
+    -- immediately again → cooldown, no fire
+    on_finished()
+    spyweb.assert_eq(#calls, 1)
+
+    -- touch_node clears the alert flag (and refreshes last_seen)
+    db.touch_node(node.id)
+    local after_touch = db.get_node(node.id)
+    spyweb.assert_eq(after_touch.stale_alerted_at, nil)
+
+    -- simulate renewed silence: old contact + cleared flag → fires again
+    db_exec("UPDATE nodes SET last_seen_at = ? WHERE id = ?", { os.time() - 600, node.id })
+    on_finished()
+    spyweb.assert_eq(#calls, 2)
+
+    restore()
+    restore_logger()
+end
+
+function test_on_finished_dispatch_failure_does_not_mark()
+    set_bootstrap(true, "tok", "https://central.example.com", "central")
+    local ch = seed_channel(1)
+    set_stale_settings(true, ch.id)
+    local node = seed_node({ minutes = 5, last_seen_at = os.time() - 600 })
+    local calls, restore = stub_dispatch(nil, "boom")
+    local infos, warns, restore_logger = stub_logger_module()
+
+    on_finished()
+    spyweb.assert_eq(#calls, 1)
+    spyweb.assert_eq(db.get_node(node.id).stale_alerted_at, nil)
+    spyweb.assert_eq(#warns, 1)
+    spyweb.assert_eq(warns[1].cat, "checker.stale")
+    spyweb.assert_ne(string.find(warns[1].msg, "boom"), nil)
+    spyweb.assert_eq(#infos, 0)
+
+    -- retries next cycle once dispatch succeeds
+    restore()
+    local calls2, restore2 = stub_dispatch(true)
+    on_finished()
+    spyweb.assert_eq(#calls2, 1)
+    spyweb.assert_ne(db.get_node(node.id).stale_alerted_at, nil)
+
+    restore2()
+    restore_logger()
+end

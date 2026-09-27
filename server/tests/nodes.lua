@@ -69,3 +69,18 @@ function test_update_node_stale_alert_minutes_accepts_string_number()
     spyweb.assert_eq(resp.status, 200)
     spyweb.assert_eq(db.get_node(id).stale_alert_minutes, 30)
 end
+
+function test_update_node_active()
+    db_exec("DELETE FROM nodes WHERE role != 'central'")
+    local create = json_decode(http_post(H.api("/nodes"), json_encode({ name = "ActiveNode" }), { ["Content-Type"] = "application/json" }).body)
+    local id = create.data.node.id
+    spyweb.assert_eq(create.data.node.active, 1)
+
+    local off = http_request({ method = "PUT", url = H.api("/nodes/" .. id), body = json_encode({ active = 0 }), headers = { ["Content-Type"] = "application/json" } })
+    spyweb.assert_eq(off.status, 200)
+    spyweb.assert_eq(json_decode(off.body).data.active, 0)
+
+    local on = http_request({ method = "PUT", url = H.api("/nodes/" .. id), body = json_encode({ active = 1 }), headers = { ["Content-Type"] = "application/json" } })
+    spyweb.assert_eq(on.status, 200)
+    spyweb.assert_eq(json_decode(on.body).data.active, 1)
+end

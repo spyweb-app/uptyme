@@ -52,19 +52,18 @@ function test_status_page_crud_slug_and_membership()
     spyweb.assert_eq(group.monitor_id, nil)
     spyweb.assert_eq(group.is_public, 1)
 
-    local membership = db.add_status_page_monitor(group.id, monitor_id, 4)
-    spyweb.assert_ne(membership, nil)
-    spyweb.assert_eq(membership.display_order, 4)
-    local members = db.list_status_page_monitors(group.id)
+    local members = db.set_status_page_monitors(group.id, { { monitor_id = monitor_id, display_order = 4 } })
+    spyweb.assert_ne(members, nil)
+    spyweb.assert_eq(members[1].display_order, 4)
     spyweb.assert_eq(#members, 1)
     spyweb.assert_eq(members[1].id, monitor_id)
 
-    local reordered = db.update_status_page_monitor_order(group.id, monitor_id, 1)
-    spyweb.assert_eq(reordered.display_order, 1)
-    db.remove_status_page_monitor(group.id, monitor_id)
+    db.set_status_page_monitors(group.id, { { monitor_id = monitor_id, display_order = 1 } })
+    spyweb.assert_eq(db.list_status_page_monitors(group.id)[1].display_order, 1)
+    db.set_status_page_monitors(group.id, {})
     spyweb.assert_eq(#db.list_status_page_monitors(group.id), 0)
 
-    db.add_status_page_monitor(group.id, monitor_id, 0)
+    db.set_status_page_monitors(group.id, { { monitor_id = monitor_id, display_order = 0 } })
     db.delete_status_page(group.id)
     spyweb.assert_eq(db.get_status_page(group.id), nil)
     spyweb.assert_ne(db.get(monitor_id), nil)
@@ -83,7 +82,7 @@ function test_status_page_membership_rejects_monitor_pages()
     local monitor_id = db_query([[INSERT INTO monitors (name, url)
         VALUES ('Membership Test', 'https://membership-test.example.com') RETURNING id]])[1].id
     local page = db.create_status_page({ type = "monitor", monitor_id = monitor_id, name = "Monitor Page" })
-    local membership, err = db.add_status_page_monitor(page.id, monitor_id, 0)
+    local membership, err = db.set_status_page_monitors(page.id, { { monitor_id = monitor_id, display_order = 0 } })
     spyweb.assert_eq(membership, nil)
     spyweb.assert_eq(err, "monitor pages cannot have members")
     db.delete_monitor(monitor_id)
@@ -108,7 +107,7 @@ function test_public_report_group_member_uses_group_slug_and_utc_month()
     local other_id = db_query([[INSERT INTO monitors (name, url)
         VALUES ('Other Report Monitor', 'https://other-report.example.com') RETURNING id]])[1].id
     local page = db.create_status_page({ type = "group", name = "Report Group", is_public = true })
-    db.add_status_page_monitor(page.id, monitor_id, 0)
+    db.set_status_page_monitors(page.id, { { monitor_id = monitor_id, display_order = 0 } })
 
     db_exec([[INSERT INTO check_history (monitor_id, status_code, is_up, checked_at)
         VALUES (?, 200, 1, CAST(strftime('%s', ?) AS INTEGER))]], { monitor_id, "2025-01-31 23:30:00" })
@@ -156,9 +155,11 @@ function test_public_group_status_aggregates_members()
     end
 
     local page = db.create_status_page({ type = "group", name = "Aggregate Group", is_public = true })
-    db.add_status_page_monitor(page.id, ids[1], 2)
-    db.add_status_page_monitor(page.id, ids[2], 1)
-    db.add_status_page_monitor(page.id, ids[3], 3)
+    db.set_status_page_monitors(page.id, {
+        { monitor_id = ids[1], display_order = 2 },
+        { monitor_id = ids[2], display_order = 1 },
+        { monitor_id = ids[3], display_order = 3 },
+    })
 
     local result = db.get_public_group_status(page.id)
     spyweb.assert_eq(result.status, "down")
@@ -215,15 +216,16 @@ function test_status_page_admin_api_crud_and_membership()
     spyweb.assert_eq(created.data.type, "group")
 
     local page_id = created.data.id
-    local added = json_decode(http_post(H.api("/status_pages/" .. page_id .. "/monitors"), json_encode({
-        monitor_id = monitor_id, display_order = 2,
-    }), headers).body)
+    local added = json_decode(http_request({
+        method = "PUT", url = H.api("/status_pages/" .. page_id),
+        body = json_encode({ monitors = { { monitor_id = monitor_id, display_order = 2 } } }), headers = headers,
+    }).body)
     spyweb.assert_eq(added.success, true)
-    spyweb.assert_eq(added.data.display_order, 2)
 
-    local listed = json_decode(http_get(H.api("/status_pages/" .. page_id .. "/monitors")).body)
+    local listed = json_decode(http_get(H.api("/status_pages/" .. page_id .. "?view=monitors")).body)
     spyweb.assert_eq(#listed.data, 1)
     spyweb.assert_eq(listed.data[1].id, monitor_id)
+    spyweb.assert_eq(listed.data[1].display_order, 2)
 
     local updated = json_decode(http_request({
         method = "PUT", url = H.api("/status_pages/" .. page_id),
@@ -233,9 +235,11 @@ function test_status_page_admin_api_crud_and_membership()
     spyweb.assert_eq(updated.data.is_public, 0)
 
     local removed = json_decode(http_request({
-        method = "DELETE", url = H.api("/status_pages/" .. page_id .. "/monitors/" .. monitor_id), headers = {},
+        method = "PUT", url = H.api("/status_pages/" .. page_id),
+        body = json_encode({ monitors = {} }), headers = headers,
     }).body)
-    spyweb.assert_eq(removed.data.deleted, true)
+    spyweb.assert_eq(removed.success, true)
+    spyweb.assert_eq(#json_decode(http_get(H.api("/status_pages/" .. page_id .. "?view=monitors")).body).data, 0)
 
     local deleted = json_decode(http_request({
         method = "DELETE", url = H.api("/status_pages/" .. page_id), headers = {},

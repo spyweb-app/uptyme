@@ -30,13 +30,9 @@ export function useNodeStore() {
   }
 
   async function toggleActive(n: ClusterNode) {
-    if (n.active === 1) {
-      await api.deactivateNode(n.id)
-      n.active = 0
-    } else {
-      await api.activateNode(n.id)
-      n.active = 1
-    }
+    const active = n.active === 1 ? 0 : 1
+    const updated = await api.updateNode(n.id, { active })
+    Object.assign(n, updated)
   }
 
   async function updateNode(id: number, data: Partial<ClusterNode>) {

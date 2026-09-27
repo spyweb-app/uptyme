@@ -28,7 +28,7 @@ function M.list(self)
 
     local id = tonumber(self.path_args[1])
     if id then
-        if self.path_args[2] == "reports" then
+        if self.query.view == "reports" then
             return H.json_response(200, db.get_node_reports(id))
         end
         local node, node_err = H.find_or_404(db.get_node, id, "Node")
@@ -77,20 +77,6 @@ function M.update(self)
     local id, id_err = H.require_id(self, "Node")
     if not id then return id_err end
 
-    if self.path_args[2] == "deactivate" then
-        local node, node_err = H.find_or_404(db.get_node, id, "Node")
-        if not node then return node_err end
-        node = db.deactivate_node(id)
-        return H.json_response(200, node)
-    end
-
-    if self.path_args[2] == "activate" then
-        local node, node_err = H.find_or_404(db.get_node, id, "Node")
-        if not node then return node_err end
-        node = db.activate_node(id)
-        return H.json_response(200, node)
-    end
-
     if self.path_args[2] == "reset-token" then
         local node, node_err = H.find_or_404(db.get_node, id, "Node")
         if not node then return node_err end
@@ -112,6 +98,9 @@ function M.update(self)
     if not node then return node_err end
 
     node = db.update_node(id, validated)
+    if not node then
+        return H.json_response(400, nil, "No fields to update")
+    end
     return H.json_response(200, node)
 end
 

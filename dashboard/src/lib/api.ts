@@ -25,6 +25,18 @@ async function request<T>(url: string, opts?: RequestInit): Promise<T> {
   return data as T
 }
 
+const qs = (p?: Record<string, string | number | undefined>) => {
+  if (!p) return ''
+  const pairs = Object.entries(p).filter(([, v]) => v !== undefined)
+  if (!pairs.length) return ''
+  return '?' + pairs.map(([k, v]) => k + '=' + encodeURIComponent(String(v))).join('&')
+}
+
+const get = <T>(url: string, p?: Record<string, string | number | undefined>) => request<T>(url + qs(p))
+const post = <T>(url: string, data: unknown) => request<T>(url, { method: 'POST', body: JSON.stringify(data) })
+const put = <T>(url: string, data?: unknown) => request<T>(url, { method: 'PUT', body: JSON.stringify(data) })
+const del = (url: string) => request<{ deleted: boolean }>(url, { method: 'DELETE' })
+
 export interface PaginatedResult<T> {
   items: T[]
   total: number
@@ -209,49 +221,31 @@ export interface GlobalStats {
 }
 
 export const api = {
-  getHealth: () => request<Health>('/health'),
+  getHealth: () => get<Health>('/health'),
 
-  getStats: () => request<GlobalStats>('/stats'),
+  getStats: () => get<GlobalStats>('/stats'),
 
-  listMonitors: (opts?: { page?: number; per_page?: number; sort?: string; order?: string; q?: string; enabled?: number }) => {
-    const params = new URLSearchParams()
-    if (opts) {
-      if (opts.page) params.set('page', String(opts.page))
-      if (opts.per_page) params.set('per_page', String(opts.per_page))
-      if (opts.sort) params.set('sort', opts.sort)
-      if (opts.order) params.set('order', opts.order)
-      if (opts.q) params.set('q', opts.q)
-      if (opts.enabled !== undefined) params.set('enabled', String(opts.enabled))
-    }
-    const qs = params.toString()
-    return request<PaginatedResult<Monitor>>('/monitors' + (qs ? '?' + qs : ''))
-  },
+  listMonitors: (opts?: { page?: number; per_page?: number; sort?: string; order?: string; q?: string; enabled?: number }) =>
+    get<PaginatedResult<Monitor>>('/monitors', opts),
 
-  getMonitor: (id: number) => request<Monitor>('/monitors/' + id),
+  getMonitor: (id: number) => get<Monitor>('/monitors/' + id),
 
-  createMonitor: (data: Partial<Monitor>) =>
-    request<Monitor>('/monitors', { method: 'POST', body: JSON.stringify(data) }),
+  createMonitor: (data: Partial<Monitor>) => post<Monitor>('/monitors', data),
 
-  updateMonitor: (id: number, data: Partial<Monitor>) =>
-    request<Monitor>('/monitors/' + id, { method: 'PUT', body: JSON.stringify(data) }),
+  updateMonitor: (id: number, data: Partial<Monitor> & { channel_ids?: number[] }) =>
+    put<Monitor>('/monitors/' + id, data),
 
-  deleteMonitor: (id: number) =>
-    request<{ deleted: boolean }>('/monitors/' + id, { method: 'DELETE' }),
+  deleteMonitor: (id: number) => del('/monitors/' + id),
 
-  getHistory: (id: number, before?: number, limit = 50) => {
-    const params = new URLSearchParams()
-    if (before) params.set('before', String(before))
-    params.set('limit', String(limit))
-    return request<Check[]>('/monitors/' + id + '/history?' + params.toString())
-  },
+  getHistory: (id: number, before?: number, limit = 50) =>
+    get<Check[]>('/monitors/' + id, { view: 'history', before, limit }),
 
   getSummary: (id: number, days = 7, group = 'day') =>
-    request<DaySummary[]>('/monitors/' + id + '/summary?days=' + days + '&group=' + group),
+    get<DaySummary[]>('/monitors/' + id, { view: 'summary', days, group }),
 
-  getSettings: () => request<Settings>('/settings'),
+  getSettings: () => get<Settings>('/settings'),
 
-  updateSettings: (data: Settings) =>
-    request<Settings>('/settings', { method: 'PUT', body: JSON.stringify(data) }),
+  updateSettings: (data: Settings) => put<Settings>('/settings', data),
 
   exportMonitors: async (format: 'json' | 'csv') => {
     const headers: Record<string, string> = {}
@@ -278,74 +272,43 @@ export const api = {
       body,
     }),
 
-  listChannels: () => request<NotificationChannel[]>('/channels'),
+  listChannels: () => get<NotificationChannel[]>('/channels'),
 
-  createChannel: (data: Partial<NotificationChannel>) =>
-    request<NotificationChannel>('/channels', { method: 'POST', body: JSON.stringify(data) }),
+  createChannel: (data: Partial<NotificationChannel>) => post<NotificationChannel>('/channels', data),
 
-  updateChannel: (id: number, data: Partial<NotificationChannel>) =>
-    request<NotificationChannel>('/channels/' + id, { method: 'PUT', body: JSON.stringify(data) }),
+  updateChannel: (id: number, data: Partial<NotificationChannel>) => put<NotificationChannel>('/channels/' + id, data),
 
-  deleteChannel: (id: number) =>
-    request<{ deleted: boolean }>('/channels/' + id, { method: 'DELETE' }),
+  deleteChannel: (id: number) => del('/channels/' + id),
 
   testChannel: (id: number, message?: string) =>
-    request<{ name: string; type: string; response?: any; error?: string; }>('/channels/' + id + '/test', { method: 'PUT', body: JSON.stringify({ message }) }),
+    put<{ name: string; type: string; response?: any; error?: string; }>('/channels/' + id + '/test', { message }),
 
-  getMonitorChannels: (id: number) =>
-    request<number[]>('/monitors/' + id + '/channels'),
+  getMonitorChannels: (id: number) => get<number[]>('/monitors/' + id, { view: 'channels' }),
 
-  setMonitorChannels: (id: number, channelIds: number[]) =>
-    request<{ success: boolean }>('/monitors/' + id + '/channels', { method: 'PUT', body: JSON.stringify(channelIds) }),
-
-  listNodes: () => request<ClusterNode[]>('/nodes'),
+  listNodes: () => get<ClusterNode[]>('/nodes'),
 
   createNode: (data: { name: string; role?: string }) =>
-    request<{ node: ClusterNode; token: string }>('/nodes', { method: 'POST', body: JSON.stringify(data) }),
+    post<{ node: ClusterNode; token: string }>('/nodes', data),
 
-  getNode: (id: number) => request<NodeDetail>('/nodes/' + id),
+  getNode: (id: number) => get<NodeDetail>('/nodes/' + id),
 
-  getNodeReports: (id: number) => request<NodeReport[]>('/nodes/' + id + '/reports'),
+  getNodeReports: (id: number) => get<NodeReport[]>('/nodes/' + id, { view: 'reports' }),
 
-  updateNode: (id: number, data: Partial<ClusterNode>) =>
-    request<ClusterNode>('/nodes/' + id, { method: 'PUT', body: JSON.stringify(data) }),
-
-  activateNode: (id: number) =>
-    request<ClusterNode>('/nodes/' + id + '/activate', { method: 'PUT' }),
-
-  deactivateNode: (id: number) =>
-    request<ClusterNode>('/nodes/' + id + '/deactivate', { method: 'PUT' }),
+  updateNode: (id: number, data: Partial<ClusterNode>) => put<ClusterNode>('/nodes/' + id, data),
 
   resetNodeToken: (id: number) =>
-    request<{ node: ClusterNode; token: string }>('/nodes/' + id + '/reset-token', { method: 'PUT' }),
+    put<{ node: ClusterNode; token: string }>('/nodes/' + id + '/reset-token'),
 
-  deleteNode: (id: number) =>
-    request<{ deleted: boolean }>('/nodes/' + id, { method: 'DELETE' }),
+  deleteNode: (id: number) => del('/nodes/' + id),
 
-  listStatusPages: () => request<StatusPage[]>('/status_pages'),
+  listStatusPages: () => get<StatusPage[]>('/status_pages'),
 
-  createStatusPage: (data: Partial<StatusPage>) =>
-    request<StatusPage>('/status_pages', { method: 'POST', body: JSON.stringify(data) }),
+  createStatusPage: (data: Partial<StatusPage>) => post<StatusPage>('/status_pages', data),
 
-  updateStatusPage: (id: number, data: Partial<StatusPage>) =>
-    request<StatusPage>('/status_pages/' + id, { method: 'PUT', body: JSON.stringify(data) }),
+  updateStatusPage: (id: number, data: Partial<StatusPage> & { monitors?: { monitor_id: number; display_order?: number }[] }) =>
+    put<StatusPage>('/status_pages/' + id, data),
 
-  deleteStatusPage: (id: number) =>
-    request<{ deleted: boolean }>('/status_pages/' + id, { method: 'DELETE' }),
+  deleteStatusPage: (id: number) => del('/status_pages/' + id),
 
-  listStatusPageMonitors: (id: number) =>
-    request<StatusPageMonitor[]>('/status_pages/' + id + '/monitors'),
-
-  addStatusPageMonitor: (id: number, monitor_id: number, display_order = 0) =>
-    request<{ status_page_id: number; monitor_id: number; display_order: number }>('/status_pages/' + id + '/monitors', {
-      method: 'POST', body: JSON.stringify({ monitor_id, display_order }),
-    }),
-
-  updateStatusPageMonitorOrder: (id: number, monitor_id: number, display_order: number) =>
-    request<{ status_page_id: number; monitor_id: number; display_order: number }>('/status_pages/' + id + '/monitors/' + monitor_id, {
-      method: 'PUT', body: JSON.stringify({ display_order }),
-    }),
-
-  removeStatusPageMonitor: (id: number, monitor_id: number) =>
-    request<{ deleted: boolean }>('/status_pages/' + id + '/monitors/' + monitor_id, { method: 'DELETE' }),
+  listStatusPageMonitors: (id: number) => get<StatusPageMonitor[]>('/status_pages/' + id, { view: 'monitors' }),
 }

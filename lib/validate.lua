@@ -184,6 +184,7 @@ local SETTINGS = {
 local NODE = {
     name = { type = "string", required = true, nonempty = "name must be a non-empty string" },
     stale_alert_minutes = { type = "int", min = 0, max = 10080 },
+    active = { type = "bool" },
 }
 
 -- stylua: ignore

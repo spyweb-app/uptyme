@@ -31,22 +31,12 @@ function M.create_node(data)
 end
 
 function M.update_node(id, data)
-  local sets, params = db_build_set_clause(data, { "name", "stale_alert_minutes" })
+  local sets, params = db_build_set_clause(data, { "name", "stale_alert_minutes", "active" })
   if #sets == 0 then return nil, "no fields to update" end
   table.insert(params, os.time())
   table.insert(params, id)
   db_exec("UPDATE nodes SET " .. table.concat(sets, ", ") .. ", updated_at = ? WHERE id = ?",
     { table.unpack(params) })
-  return M.get_node(id)
-end
-
-function M.deactivate_node(id)
-  db_exec("UPDATE nodes SET active = 0, updated_at = ? WHERE id = ?", { os.time(), id })
-  return M.get_node(id)
-end
-
-function M.activate_node(id)
-  db_exec("UPDATE nodes SET active = 1, updated_at = ? WHERE id = ?", { os.time(), id })
   return M.get_node(id)
 end
 

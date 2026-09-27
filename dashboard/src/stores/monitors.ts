@@ -58,7 +58,7 @@ export const useMonitorStore = defineStore('monitors', () => {
   }
 
   async function setChannels(id: number, channelIds: number[]) {
-    await api.setMonitorChannels(id, channelIds)
+    await api.updateMonitor(id, { channel_ids: channelIds })
   }
 
   function patch(updated: Partial<Monitor>) {

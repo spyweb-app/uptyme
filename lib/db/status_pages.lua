@@ -128,30 +128,25 @@ local function require_group_page(page_id)
   return page
 end
 
-function M.add_status_page_monitor(page_id, monitor_id, display_order)
+function M.set_status_page_monitors(page_id, monitors)
   local page, err = require_group_page(page_id)
   if not page then return nil, err end
-  if not db_first("SELECT id FROM monitors WHERE id = ?", { monitor_id }) then
-    return nil, "monitor not found"
+  monitors = monitors or {}
+  for _, m in ipairs(monitors) do
+    if not db_first("SELECT id FROM monitors WHERE id = ?", { m.monitor_id }) then
+      return nil, "monitor not found"
+    end
   end
-  local ok, insert_err = pcall(db_exec, [[
-    INSERT INTO status_page_monitors (status_page_id, monitor_id, display_order)
-    VALUES (?, ?, ?)
-  ]], { page_id, monitor_id, tonumber(display_order) or 0 })
-  if not ok then return nil, insert_err end
-  return db_first("SELECT * FROM status_page_monitors WHERE status_page_id = ? AND monitor_id = ?", { page_id, monitor_id })
-end
-
-function M.update_status_page_monitor_order(page_id, monitor_id, display_order)
-  local page, err = require_group_page(page_id)
-  if not page then return nil, err end
-  db_exec([[UPDATE status_page_monitors SET display_order = ?
-    WHERE status_page_id = ? AND monitor_id = ?]], { tonumber(display_order) or 0, page_id, monitor_id })
-  return db_first("SELECT * FROM status_page_monitors WHERE status_page_id = ? AND monitor_id = ?", { page_id, monitor_id })
-end
-
-function M.remove_status_page_monitor(page_id, monitor_id)
-  db_exec("DELETE FROM status_page_monitors WHERE status_page_id = ? AND monitor_id = ?", { page_id, monitor_id })
+  local ok, del_err = pcall(db_exec, "DELETE FROM status_page_monitors WHERE status_page_id = ?", { page_id })
+  if not ok then return nil, del_err end
+  for i, m in ipairs(monitors) do
+    local ins, ins_err = pcall(db_exec, [[
+      INSERT INTO status_page_monitors (status_page_id, monitor_id, display_order)
+      VALUES (?, ?, ?)
+    ]], { page_id, m.monitor_id, tonumber(m.display_order) or (i - 1) })
+    if not ins then return nil, ins_err end
+  end
+  return M.list_status_page_monitors(page_id)
 end
 
 return M

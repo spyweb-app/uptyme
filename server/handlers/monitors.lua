@@ -14,7 +14,7 @@ function M.export(self)
             body = import_export.export_csv(rows),
             headers = {
                 ["Content-Type"] = "text/csv",
-                ["Content-Disposition"] = 'attachment; filename="pulse-monitors.csv"',
+                ["Content-Disposition"] = 'attachment; filename="uptyme-monitors.csv"',
             },
         }
     end
@@ -55,7 +55,7 @@ function M.list(self)
     local id = tonumber(cmd)
 
     if id then
-        local sub = self.path_args[2]
+        local sub = self.query.view
 
         if sub == "history" then
             local before = H.int_param(self.query, "before", os.time())
@@ -127,15 +127,20 @@ function M.update(self)
     local id, id_err = H.require_id(self, "Monitor")
     if not id then return id_err end
 
-    if self.path_args[2] == "channels" then
-        local data, err = H.parse_body(self)
-        if not data then return err end
-        db.set_monitor_channels(id, data)
-        return H.json_response(200, { success = true })
-    end
-
     local data, parse_err = H.parse_body(self)
     if not data then return parse_err end
+
+    local channel_ids = data.channel_ids
+    if channel_ids ~= nil then
+        if type(channel_ids) ~= "table" then
+            return H.json_response(400, nil, "channel_ids must be an array of positive integers")
+        end
+        for i, cid in ipairs(channel_ids) do
+            if type(cid) ~= "number" or cid ~= math.floor(cid) or cid < 1 then
+                return H.json_response(400, nil, "channel_ids[" .. i .. "] must be a positive integer")
+            end
+        end
+    end
 
     local validated, val_err = H.validate_or_400(data, validate.monitor_update)
     if not validated then return val_err end
@@ -143,12 +148,17 @@ function M.update(self)
     local updatable = { "name", "url", "method", "interval_sec", "timeout_ms", "check_value", "enabled", "desktop_notify", "check_cert", "cert_threshold_days" }
     local sets, params = db.build_set_clause(validated, updatable)
 
-    if #sets == 0 then
+    if #sets == 0 and channel_ids == nil then
         return H.json_response(400, nil, "No fields to update")
     end
 
-    db.update_monitor(id, sets, params)
-    db.bump_monitors_version()
+    if #sets > 0 then
+        db.update_monitor(id, sets, params)
+        db.bump_monitors_version()
+    end
+    if channel_ids ~= nil then
+        db.set_monitor_channels(id, channel_ids)
+    end
 
     local row = db.get(id)
     if not row then

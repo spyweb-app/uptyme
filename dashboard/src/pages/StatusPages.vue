@@ -378,35 +378,12 @@ async function savePage() {
 }
 
 async function syncMembers(pageId: number) {
-  const currentIds = new Set(selectedMembers.value.map(m => m.id))
-  const toAdd = selectedMembers.value.filter(m => !existingMemberIds.value.has(m.id))
-  const toRemove = [...existingMemberIds.value].filter(id => !currentIds.has(id))
-
-  for (const member of toAdd) {
-    try {
-      await api.addStatusPageMonitor(pageId, member.id)
-    } catch (err: any) {
-      showNotification(`Failed to add monitor: ${err.message}`, 'error')
-    }
-  }
-
-  for (const id of toRemove) {
-    try {
-      await api.removeStatusPageMonitor(pageId, id)
-    } catch (err: any) {
-      showNotification(`Failed to remove monitor: ${err.message}`, 'error')
-    }
-  }
-
-  for (let i = 0; i < selectedMembers.value.length; i++) {
-    const member = selectedMembers.value[i]
-    if (existingMemberIds.value.has(member.id)) {
-      try {
-        await api.updateStatusPageMonitorOrder(pageId, member.id, i)
-      } catch (err: any) {
-        showNotification(`Failed to reorder monitor: ${err.message}`, 'error')
-      }
-    }
+  try {
+    await api.updateStatusPage(pageId, {
+      monitors: selectedMembers.value.map((m, i) => ({ monitor_id: m.id, display_order: i })),
+    })
+  } catch (err: any) {
+    showNotification(`Failed to sync monitors: ${err.message}`, 'error')
   }
 }
 

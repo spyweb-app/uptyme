@@ -3,6 +3,8 @@ local runtime_config = require("lib.runtime_config")
 
 local M = {}
 
+local MONITOR_COLS = "id, name, url, method, interval_sec, timeout_ms, check_value, is_up, last_status_code, last_response_time_ms, last_check_at, consecutive_failures, enabled, desktop_notify, check_cert, cert_threshold_days, cert_last_check, cert_not_after, cert_days_left, created_at, updated_at"
+
 -- Helpers shared by multiple functions in this module
 
 local ALLOWED_SORTS = {
@@ -140,7 +142,7 @@ function M.monitor_list(opts)
 end
 
 function M.export_all()
-  return db_query("SELECT * FROM monitors ORDER BY created_at DESC")
+  return db_query("SELECT " .. MONITOR_COLS .. " FROM monitors ORDER BY created_at DESC")
 end
 
 function M.export_syncable()
@@ -166,7 +168,7 @@ function M.get(id)
 end
 
 function M.get_by_url(url)
-  return db_first("SELECT * FROM monitors WHERE url = ?", { url })
+  return db_select_one("monitors", MONITOR_COLS, "url", url)
 end
 
 local function consensus_tracked_ids(ids)
@@ -349,13 +351,6 @@ function M.insert_monitor(entry)
     end
   end
   return ok, err
-end
-
-function M.update_monitor(id, sets, params)
-  table.insert(sets, "updated_at = ?")
-  table.insert(params, os.time())
-  table.insert(params, id)
-  db_exec("UPDATE monitors SET " .. table.concat(sets, ", ") .. " WHERE id = ?", params)
 end
 
 function M.delete_monitor(id)

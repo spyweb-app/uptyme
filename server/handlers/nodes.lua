@@ -33,7 +33,6 @@ function M.list(self)
         end
         local node, node_err = H.find_or_404(db.get_node, id, "Node")
         if not node then return node_err end
-        node.token_hash = nil
         return H.json_response(200, node)
     end
 
@@ -84,7 +83,6 @@ function M.update(self)
         local prefix, secret = cluster_auth.parse_token(token)
         local hash = cluster_auth.hash_secret(secret)
         node = db.reset_node_token(id, prefix, hash)
-        node.token_hash = nil
         return H.json_response(200, { node = node, token = token })
     end
 

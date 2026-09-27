@@ -146,16 +146,14 @@ function M.update(self)
     if not validated then return val_err end
 
     local updatable = { "name", "url", "method", "interval_sec", "timeout_ms", "check_value", "enabled", "desktop_notify", "check_cert", "cert_threshold_days" }
-    local sets, params = db.build_set_clause(validated, updatable)
+    local updated, update_err = db.update_by_id("monitors", id, validated, updatable, { updated_at = true })
 
-    if #sets == 0 and channel_ids == nil then
-        return H.json_response(400, nil, "No fields to update")
-    end
-
-    if #sets > 0 then
-        db.update_monitor(id, sets, params)
+    if updated then
         db.bump_monitors_version()
+    elseif channel_ids == nil then
+        return H.json_response(400, nil, update_err or "No fields to update")
     end
+
     if channel_ids ~= nil then
         db.set_monitor_channels(id, channel_ids)
     end

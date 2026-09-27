@@ -8,6 +8,7 @@ function test_create_node_role_ignored()
     local body = json_decode(resp.body)
     spyweb.assert_eq(body.data.node.name, "TestNode")
     spyweb.assert_eq(body.data.node.role, "checker") -- should default to checker, not central
+    spyweb.assert_eq(body.data.node.token_hash, nil)
 end
 
 function test_update_node_valid()
@@ -19,6 +20,7 @@ function test_update_node_valid()
     local body = json_decode(resp.body)
     spyweb.assert_eq(body.data.name, "NewNode")
     spyweb.assert_eq(body.data.role, "checker") -- role shouldn't change
+    spyweb.assert_eq(body.data.token_hash, nil)
 end
 
 function test_create_node_missing_name()

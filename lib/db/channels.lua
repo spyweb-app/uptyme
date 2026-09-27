@@ -1,11 +1,14 @@
 local M = {}
 
+local CHANNEL_COLS = "id, name, type, config, enabled, created_at"
+local CHANNEL_UPDATABLE = { "name", "type", "config", "enabled" }
+
 function M.list_channels()
-  return db_query("SELECT * FROM notification_channels ORDER BY name ASC")
+  return db_query("SELECT " .. CHANNEL_COLS .. " FROM notification_channels ORDER BY name ASC")
 end
 
 function M.get_channel(id)
-  return db_first("SELECT * FROM notification_channels WHERE id = ?", { id })
+  return db_select_one("notification_channels", CHANNEL_COLS, "id", id)
 end
 
 function M.create_channel(data)
@@ -16,14 +19,12 @@ function M.create_channel(data)
     data.enabled == nil and 1 or (data.enabled ~= 0 and 1 or 0)
   })
   if not ok then return nil, err end
-  return db_first("SELECT * FROM notification_channels WHERE id = last_insert_rowid()")
+  return db_first("SELECT " .. CHANNEL_COLS .. " FROM notification_channels WHERE id = last_insert_rowid()")
 end
 
 function M.update_channel(id, data)
-  local sets, params = db_build_set_clause(data, { "name", "type", "config", "enabled" })
-  if #sets == 0 then return M.get_channel(id) end
-  table.insert(params, id)
-  db_exec("UPDATE notification_channels SET " .. table.concat(sets, ", ") .. " WHERE id = ?", params)
+  local ok, err = db_update_by_id("notification_channels", id, data, CHANNEL_UPDATABLE)
+  if not ok then return nil, err end
   return M.get_channel(id)
 end
 

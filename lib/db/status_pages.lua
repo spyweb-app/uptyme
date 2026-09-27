@@ -2,6 +2,9 @@ local status_slug = require("lib.status_slug")
 
 local M = {}
 
+local STATUS_PAGE_COLS = "id, slug, type, monitor_id, name, description, is_public, created_at, updated_at"
+local SP_UPDATABLE = { "name", "description", "is_public" }
+
 local function valid_type(page_type)
   return page_type == "monitor" or page_type == "group"
 end
@@ -11,15 +14,15 @@ local function as_bool(value)
 end
 
 function M.get_status_page(id)
-  return db_first("SELECT * FROM status_pages WHERE id = ?", { id })
+  return db_select_one("status_pages", STATUS_PAGE_COLS, "id", id)
 end
 
 function M.get_status_page_by_slug(slug)
-  return db_first("SELECT * FROM status_pages WHERE slug = ?", { slug })
+  return db_select_one("status_pages", STATUS_PAGE_COLS, "slug", slug)
 end
 
 function M.list_status_pages()
-  return db_query("SELECT * FROM status_pages ORDER BY type ASC, name ASC, id ASC")
+  return db_query("SELECT " .. STATUS_PAGE_COLS .. " FROM status_pages ORDER BY type ASC, name ASC, id ASC")
 end
 
 function M.create_status_page(data)
@@ -71,7 +74,7 @@ function M.create_status_page(data)
     end
     local ok, err = pcall(db_exec, insert_sql, insert_params)
     if ok then
-      return db_first("SELECT * FROM status_pages WHERE slug = ?", { slug })
+      return db_select_one("status_pages", STATUS_PAGE_COLS, "slug", slug)
     end
     if err and not tostring(err):lower():match("unique") then return nil, err end
   end
@@ -82,27 +85,18 @@ function M.update_status_page(id, data)
   data = data or {}
   local page = M.get_status_page(id)
   if not page then return nil, "status page not found" end
+  if data.name ~= nil and data.name == "" then return nil, "name is required" end
 
-  local sets, params = {}, {}
-  if data.name ~= nil then
-    if data.name == "" then return nil, "name is required" end
-    sets[#sets + 1] = "name = ?"
-    params[#params + 1] = data.name
-  end
-  if data.description ~= nil then
-    sets[#sets + 1] = "description = ?"
-    params[#params + 1] = data.description
-  end
-  if data.is_public ~= nil then
-    sets[#sets + 1] = "is_public = ?"
-    params[#params + 1] = as_bool(data.is_public)
-  end
-  if #sets == 0 then return page end
+  local fields = {}
+  if data.name ~= nil then fields.name = data.name end
+  if data.description ~= nil then fields.description = data.description end
+  if data.is_public ~= nil then fields.is_public = as_bool(data.is_public) end
 
-  sets[#sets + 1] = "updated_at = ?"
-  params[#params + 1] = os.time()
-  params[#params + 1] = id
-  db_exec("UPDATE status_pages SET " .. table.concat(sets, ", ") .. " WHERE id = ?", params)
+  local ok, err = db_update_by_id("status_pages", id, fields, SP_UPDATABLE, { updated_at = true })
+  if not ok then
+    if err == "no fields to update" then return page end
+    return nil, err
+  end
   return M.get_status_page(id)
 end
 

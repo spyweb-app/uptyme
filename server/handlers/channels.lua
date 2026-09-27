@@ -35,7 +35,7 @@ function M.test(self)
     if not row then return row_err end
 
     local body = json_decode(self.body or "{}")
-    local msg = (type(body) == "table" and body.message) or "Test notification from PULSE"
+    local msg = (type(body) == "table" and body.message) or "Test notification from UPTYME"
     local ok, resp = notifier.dispatch_to_channel(id, {
         monitor = "Test",
         url = "",
@@ -79,7 +79,14 @@ function M.update(self)
         return H.json_response(404, nil, "Channel not found")
     end
 
-    row = db.update_channel(id, validated)
+    local update_err
+    row, update_err = db.update_channel(id, validated)
+    if not row then
+        if update_err then
+            return H.json_response(400, nil, update_err)
+        end
+        return H.json_response(404, nil, "Channel not found")
+    end
     return H.json_response(200, row)
 end
 

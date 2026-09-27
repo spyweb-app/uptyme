@@ -1,11 +1,15 @@
 local M = {}
 
+local NODE_COLS = "id, name, local_name, role, token_prefix, last_seen_at, active, stale_alert_minutes, stale_alerted_at, created_at, updated_at"
+local NODE_AUTH_COLS = NODE_COLS .. ", token_hash"
+local NODE_UPDATABLE = { "name", "stale_alert_minutes", "active" }
+
 function M.get_node_by_prefix(prefix)
-  return db_first("SELECT * FROM nodes WHERE token_prefix = ?", { prefix })
+  return db_select_one("nodes", NODE_AUTH_COLS, "token_prefix", prefix)
 end
 
 function M.get_node(id)
-  return db_first("SELECT * FROM nodes WHERE id = ?", { id })
+  return db_select_one("nodes", NODE_COLS, "id", id)
 end
 
 function M.list_nodes()
@@ -27,16 +31,12 @@ function M.create_node(data)
     data.active == nil and 1 or (data.active ~= 0 and 1 or 0),
   })
   if not ok then return nil, err end
-  return M.get_node_by_prefix(data.token_prefix)
+  return db_select_one("nodes", NODE_COLS, "token_prefix", data.token_prefix)
 end
 
 function M.update_node(id, data)
-  local sets, params = db_build_set_clause(data, { "name", "stale_alert_minutes", "active" })
-  if #sets == 0 then return nil, "no fields to update" end
-  table.insert(params, os.time())
-  table.insert(params, id)
-  db_exec("UPDATE nodes SET " .. table.concat(sets, ", ") .. ", updated_at = ? WHERE id = ?",
-    { table.unpack(params) })
+  local ok, err = db_update_by_id("nodes", id, data, NODE_UPDATABLE, { updated_at = true })
+  if not ok then return nil, err end
   return M.get_node(id)
 end
 
@@ -53,7 +53,7 @@ function M.get_node_reports(node_id, limit)
 end
 
 function M.update_node_local_name(node_id, name)
-  db_exec("UPDATE nodes SET local_name = ? WHERE id = ?", { name, node_id })
+  db_update_by_id("nodes", node_id, { local_name = name }, { "local_name" })
 end
 
 function M.touch_node(id)
@@ -65,11 +65,11 @@ function M.touch_node(id)
 end
 
 function M.set_node_stale_alerted(id, ts)
-  db_exec("UPDATE nodes SET stale_alerted_at = ? WHERE id = ?", { ts, id })
+  db_update_by_id("nodes", id, { stale_alerted_at = ts }, { "stale_alerted_at" })
 end
 
 function M.get_or_create_central_node()
-  local rows = db_query("SELECT * FROM nodes WHERE role = 'central'")
+  local rows = db_query("SELECT " .. NODE_COLS .. " FROM nodes WHERE role = 'central'")
   if #rows > 0 then return rows[1] end
 
   local ok = pcall(db_exec, [[
@@ -78,7 +78,7 @@ function M.get_or_create_central_node()
   ]], { "central", "central", "__central__", "", 1 })
   if not ok then return nil end
 
-  rows = db_query("SELECT * FROM nodes WHERE role = 'central'")
+  rows = db_query("SELECT " .. NODE_COLS .. " FROM nodes WHERE role = 'central'")
   return rows[1]
 end
 
@@ -141,8 +141,8 @@ function M.upsert_node_reports_batch(rows)
 end
 
 function M.reset_node_token(id, token_prefix, token_hash)
-  db_exec("UPDATE nodes SET token_prefix = ?, token_hash = ?, updated_at = ? WHERE id = ?",
-    { token_prefix, token_hash, os.time(), id })
+  db_update_by_id("nodes", id, { token_prefix = token_prefix, token_hash = token_hash },
+    { "token_prefix", "token_hash" }, { updated_at = true })
   return M.get_node(id)
 end
 

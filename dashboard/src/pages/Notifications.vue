@@ -106,11 +106,10 @@
 
 <script setup lang="ts">
 import LoadingOverlay from '~com/LoadingOverlay.vue'
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted } from 'vue'
 import { api, type NotificationChannel } from '~lib/api'
 import { useChannelStore } from '~stores/channels'
 import { showNotification, instanceName } from '~stores/app'
-import { keyVersion } from '~stores/auth'
 import ChannelForm from '~com/ChannelForm.vue'
 import ConfirmDialog from '~com/ConfirmDialog.vue'
 
@@ -197,8 +196,6 @@ function onSaved() {
   showForm.value = false
   editingChannel.value = null
 }
-
-watch(keyVersion, () => { channelStore.load() })
 
 onMounted(() => { channelStore.load() })
 </script>

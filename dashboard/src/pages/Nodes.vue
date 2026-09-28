@@ -82,10 +82,9 @@
 <script setup lang="ts">
 defineOptions({ layout: 'default' })
 
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted } from 'vue'
 import { type ClusterNode } from '~lib/api'
 import { nodeRole, showNotification } from '~stores/app'
-import { keyVersion } from '~stores/auth'
 import { useNodeStore } from '~stores/nodes'
 import { formatRelative, formatDate } from '~lib/dates'
 import NodeForm from '~com/NodeForm.vue'
@@ -128,8 +127,6 @@ function openNode(n: ClusterNode) {
   }
   saveAlert()
 }
-
-watch(keyVersion, () => { store.load() })
 
 async function toggleNode(n: ClusterNode) {
   try {

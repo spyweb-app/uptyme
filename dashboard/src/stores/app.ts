@@ -3,10 +3,18 @@ import { api } from '~lib/api'
 
 export const nodeRole = ref<'standalone' | 'central' | 'checker'>('standalone')
 
-export async function loadNodeRole() {
+export const instanceName = ref('UPTYME')
+
+export function setInstanceName(name?: string) {
+  instanceName.value = name || 'UPTYME'
+}
+
+export async function loadAppData() {
   try {
     const s = await api.getSettings()
     nodeRole.value = (s.role as any) || 'standalone'
+    setInstanceName(s.instance_name)
+    document.title = `${instanceName.value} - Website Uptime Monitoring`
   } catch {
     nodeRole.value = 'standalone'
   }

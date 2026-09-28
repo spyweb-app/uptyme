@@ -3,7 +3,7 @@
     <aside class="sidebar">
       <div class="logo">
         <span class="logo-icon">&#9670;</span>
-        <span class="logo-text">PULSE</span>
+        <span class="logo-text">{{ instanceName }}</span>
         <span v-if="nodeRole !== 'standalone'" class="role-badge" :class="nodeRole">
           {{ nodeRole }}
         </span>
@@ -41,6 +41,9 @@
             <span class="toggle-thumb" :class="{ dark: isDark }" />
           </span>
           <span class="i-mdi-weather-night" :class="{ active: isDark }" />
+        </button>
+        <button v-if="apiKey" class="logout-btn" @click="setApiKey(null)" title="Log out">
+          <span class="i-mdi-logout" />
         </button>
       </div>
     </aside>
@@ -85,6 +88,10 @@
         <span :class="isDark ? 'i-mdi-weather-sunny' : 'i-mdi-weather-night'" class="mobile-nav-icon" />
         <span>Theme</span>
       </button>
+      <button v-if="apiKey" class="mobile-nav-btn" @click="setApiKey(null)" title="Log out">
+        <span class="i-mdi-logout mobile-nav-icon" />
+        <span>Logout</span>
+      </button>
     </nav>
   </div>
 
@@ -94,8 +101,8 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
 import { ref, computed, onMounted } from 'vue'
-import { notification, clearNotification, nodeRole } from '~stores/app'
-import { showAuthModal } from '~stores/auth'
+import { notification, clearNotification, nodeRole, instanceName } from '~stores/app'
+import { showAuthModal, apiKey, setApiKey } from '~stores/auth'
 import AuthModal from '~com/AuthModal.vue'
 
 const isDark = ref(true)
@@ -113,7 +120,7 @@ const iconClass = computed(() => {
 function applyTheme(dark: boolean) {
   isDark.value = dark
   document.documentElement.classList.toggle('light', !dark)
-  localStorage.setItem('pulse-theme', dark ? 'dark' : 'light')
+  localStorage.setItem('app-theme', dark ? 'dark' : 'light')
 }
 
 function toggleTheme() {
@@ -121,7 +128,7 @@ function toggleTheme() {
 }
 
 onMounted(() => {
-  const stored = localStorage.getItem('pulse-theme')
+  const stored = localStorage.getItem('app-theme')
   if (stored) {
     applyTheme(stored === 'dark')
   } else {
@@ -181,7 +188,7 @@ onMounted(() => {
 .nav-icon { @apply text-base w-5 text-center; }
 
 .sidebar-footer {
-  @apply px-5 py-4 border-t border-[var(--border)] flex items-center justify-center;
+  @apply px-5 py-4 border-t border-[var(--border)] flex items-center justify-center gap-2;
 }
 
 .theme-toggle {
@@ -199,6 +206,15 @@ onMounted(() => {
 .toggle-track {
   @apply w-8 h-[14px] rounded-full relative transition-colors duration-150;
   background: var(--border-hover);
+}
+
+.logout-btn {
+  @apply flex items-center justify-center border-none bg-transparent cursor-pointer p-2 rounded-lg transition-all duration-150;
+
+  & .i-mdi-logout { @apply text-base text-[var(--text-muted)] transition-colors duration-150; }
+
+  &:hover { @apply bg-[var(--hover)]; }
+  &:hover .i-mdi-logout { @apply text-[var(--down)]; }
 }
 
 .toggle-thumb {

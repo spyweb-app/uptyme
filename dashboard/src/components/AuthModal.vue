@@ -6,16 +6,31 @@
         <h3 class="auth-title">Authentication Required</h3>
         <p class="auth-desc">Please enter your API key to continue.</p>
 
-        <input
-          ref="inputRef"
-          v-model="inputKey"
-          type="password"
-          class="input"
-          placeholder="Enter API Key"
-          @keyup.enter="submit"
-        />
+        <div class="input-wrap">
+          <input
+            ref="inputRef"
+            v-model="inputKey"
+            :type="showKey ? 'text' : 'password'"
+            class="input"
+            placeholder="Enter API Key"
+            @input="error = ''"
+            @keyup.enter="submit"
+          />
+          <button
+            type="button"
+            class="eye-btn"
+            :title="showKey ? 'Hide API key' : 'Show API key'"
+            @click="showKey = !showKey"
+          >
+            <span :class="showKey ? 'i-mdi-eye-off-outline' : 'i-mdi-eye-outline'" />
+          </button>
+        </div>
 
-        <button class="auth-btn" @click="submit">Unlock Dashboard</button>
+        <p v-if="error" class="auth-error">{{ error }}</p>
+
+        <button class="auth-btn" :disabled="pending" @click="submit">
+          {{ pending ? 'Verifying…' : 'Unlock Dashboard' }}
+        </button>
       </div>
     </div>
   </Teleport>
@@ -24,17 +39,33 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { setApiKey, apiKey, showAuthModal } from '~stores/auth'
+import { api } from '~lib/api'
 
 const inputKey = ref('')
 const inputRef = ref<HTMLInputElement | null>(null)
+const error = ref('')
+const pending = ref(false)
+const showKey = ref(false)
 
 onMounted(() => {
   inputRef.value?.focus()
 })
 
-function submit() {
-  if (!inputKey.value) return
-  setApiKey(inputKey.value)
+async function submit() {
+  if (!inputKey.value || pending.value) return
+  pending.value = true
+  error.value = ''
+  try {
+    if (await api.verifyKey(inputKey.value)) {
+      setApiKey(inputKey.value)
+    } else {
+      error.value = 'Invalid API key'
+    }
+  } catch {
+    error.value = "Couldn't reach server"
+  } finally {
+    pending.value = false
+  }
 }
 
 function close() {
@@ -63,8 +94,26 @@ function close() {
   @apply text-sm text-[var(--text-muted)] mb-5;
 }
 
-.input {
-  @apply mb-5;
+.input-wrap {
+  @apply relative mb-3;
+}
+
+.input-wrap .input {
+  @apply pr-10;
+}
+
+.eye-btn {
+  @apply absolute right-1 top-1/2 -translate-y-1/2 flex items-center justify-center border-none bg-transparent cursor-pointer p-1.5 rounded-md transition-colors;
+  color: var(--text-muted);
+}
+
+.eye-btn:hover {
+  color: var(--text);
+}
+
+.auth-error {
+  @apply text-sm mb-4 text-center;
+  color: var(--down);
 }
 
 .auth-btn {
@@ -75,5 +124,8 @@ function close() {
 }
 .auth-btn:hover {
   background: var(--accent-hover);
+}
+.auth-btn:disabled {
+  @apply opacity-60 cursor-wait;
 }
 </style>

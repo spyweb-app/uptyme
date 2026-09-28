@@ -5,14 +5,12 @@
 <script setup lang="ts">
 import { computed, onMounted, watch } from 'vue'
 import { RouterView, useRoute } from 'vue-router'
-import { loadNodeRole } from '~stores/app'
-import { keyVersion } from '~stores/auth'
+import { loadAppData } from '~stores/app'
 
 const route = useRoute()
 const isPublicStatus = computed(() => route.path.startsWith('/status/'))
 
-watch(keyVersion, () => { if (!isPublicStatus.value) loadNodeRole() })
-watch(() => route.path, () => { if (!isPublicStatus.value) loadNodeRole() })
+watch(() => route.path, () => { if (!isPublicStatus.value) loadAppData() })
 
-onMounted(() => { if (!isPublicStatus.value) loadNodeRole() })
+onMounted(() => { if (!isPublicStatus.value) loadAppData() })
 </script>

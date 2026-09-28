@@ -245,6 +245,15 @@ export const api = {
 
   getSettings: () => get<Settings>('/settings'),
 
+  verifyKey: async (key: string): Promise<boolean> => {
+    const res = await fetch(BASE + '/health', {
+      headers: { 'Content-Type': 'application/json', 'X-SpyWeb-Key': key },
+    })
+    if (res.status === 401) return false
+    const json = await res.json().catch(() => null)
+    return json?.success === true
+  },
+
   updateSettings: (data: Settings) => put<Settings>('/settings', data),
 
   exportMonitors: async (format: 'json' | 'csv') => {

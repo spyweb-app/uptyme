@@ -184,9 +184,8 @@
 <script setup lang="ts">
 defineOptions({ layout: 'default' })
 
-import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { api, type Settings } from '~lib/api'
-import { keyVersion } from '~stores/auth'
 import { nodeRole, showNotification, setInstanceName, instanceName as currentInstanceName } from '~stores/app'
 import { useChannelStore } from '~stores/channels'
 import { isNonEmpty } from '~lib/validators'
@@ -239,12 +238,6 @@ function snapshot(): string {
 }
 
 const isDirty = computed(() => baseline.value !== snapshot())
-
-// guards
-watch(keyVersion, () => {
-  loadSettings()
-  if (isCentral.value) channelStore.load()
-})
 
 // helpers
 function clearError(field: string) {

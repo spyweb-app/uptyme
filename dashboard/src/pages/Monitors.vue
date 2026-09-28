@@ -142,7 +142,7 @@
 <script setup lang="ts">
 defineOptions({ layout: 'default' })
 
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, type Monitor } from '~lib/api'
 import { useMonitorStore } from '~stores/monitors'
@@ -151,8 +151,6 @@ import MonitorCard from '~com/MonitorCard.vue'
 import MonitorDetail from '~com/MonitorDetail.vue'
 import MonitorForm from '~com/MonitorForm.vue'
 import { showNotification, nodeRole } from '~stores/app'
-
-import { keyVersion } from '~stores/auth'
 
 const store = useMonitorStore()
 const route = useRoute()
@@ -287,11 +285,6 @@ function onClickAway(e: MouseEvent) {
   const target = e.target as HTMLElement
   if (!target.closest('.btn-group')) showExport.value = false
 }
-
-watch(keyVersion, () => {
-  page.value = 1
-  loadMonitors()
-})
 
 async function openMonitorFromQuery(id: number) {
   if (searchTimer) clearTimeout(searchTimer)

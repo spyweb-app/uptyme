@@ -55,7 +55,7 @@
           <template v-if="form.type === 'email'">
             <div class="field">
               <label class="label">Provider</label>
-              <select class="input" v-model="cfg.provider">
+              <select class="input" v-model="cfg.provider" disabled>
                 <option value="sendgrid">SendGrid</option>
               </select>
             </div>
@@ -175,11 +175,13 @@ const form = reactive({
 })
 
 const cfg = reactive<Record<string, any>>({ ...parsedConfig })
+if (form.type === 'email' && !cfg.provider) cfg.provider = 'sendgrid'
 
 watch(() => form.type, () => {
   Object.keys(errors).forEach(k => delete errors[k])
   if (!isEdit) {
     Object.keys(cfg).forEach(k => delete cfg[k])
+    if (form.type === 'email') cfg.provider = 'sendgrid'
   }
 })
 
@@ -193,6 +195,7 @@ async function save() {
   saving.value = true
   saveError.value = ''
   try {
+    if (form.type === 'email' && !cfg.provider) cfg.provider = 'sendgrid'
     const data = {
       name: form.name,
       type: form.type,

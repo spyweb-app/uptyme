@@ -45,12 +45,12 @@ local function contact_success()
     return nil
 end
 
-local function contact_failure()
+local function contact_failure(err)
     conn_state.failures = conn_state.failures + 1
     local threshold = runtime_config.get().central_alert_failures or 3
     if conn_state.failures >= threshold and not conn_state.was_down then
         conn_state.was_down = true
-        return { event = "down" }
+        return { event = "down", err = err }
     end
     return nil
 end
@@ -62,6 +62,7 @@ local function emit_connectivity(event)
     local severity = event.event == "down" and "DOWN" or "UP"
     local message = severity == "DOWN"
         and "Central unreachable — " .. (cfg.central_url or "unknown") .. " (after " .. (cfg.central_alert_failures or 3) .. " consecutive failures)"
+            .. (event.err and (": " .. logger.err_msg(event.err)) or "")
         or "Central connection restored — " .. (cfg.central_url or "unknown")
 
     if event.event == "down" then
@@ -91,7 +92,7 @@ function before_fetch()
     if version_res then
         event = contact_success()
     else
-        event = contact_failure()
+        event = contact_failure(err)
         if conn_state.failures == 1 then
             logger.warn("central unreachable, first failure — " .. logger.err_msg(err), "sync.connectivity")
         end

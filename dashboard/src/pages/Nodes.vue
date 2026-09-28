@@ -149,8 +149,8 @@ onMounted(() => {
 <style scoped>
 .readonly-notice {
   @apply flex items-center gap-2 px-4 py-3 mb-4 rounded-lg text-sm;
-  background: rgba(251, 191, 36, 0.1);
-  color: rgb(251, 191, 36);
+  background: color-mix(in srgb, var(--blocked) 10%, transparent);
+  color: var(--blocked);
 }
 
 .empty {

@@ -89,6 +89,33 @@ function test_get_global_stats_standalone_incidents()
     spyweb.assert_ne(incidents[1].resolved_at, nil)
 end
 
+function test_disabled_monitor_history_excluded_from_stats()
+    db.ensure_schema()
+    local aid, bid = seed_two_monitors()
+    local now = os.time()
+
+    db_exec("INSERT INTO check_history (monitor_id, is_up, checked_at) VALUES (?, 1, ?)", { aid, now - 3600 })
+    db_exec("INSERT INTO check_history (monitor_id, is_up, checked_at) VALUES (?, 1, ?)", { aid, now - 1800 })
+    -- disabled monitor: its DOWN row must not drag averages/series
+    db_exec("INSERT INTO check_history (monitor_id, is_up, checked_at) VALUES (?, 0, ?)", { bid, now - 3600 })
+    db_exec("UPDATE monitors SET enabled = 0 WHERE id = ?", { bid })
+
+    local stats = db.get_global_stats("standalone")
+
+    -- enabled only: both A rows are up → 100 (B's DOWN would give 66)
+    spyweb.assert_eq(stats.aggregates.avg_uptime_24h, 100)
+
+    -- series: only A's two checks counted for that day
+    local period = os.date("!%Y-%m-%d", now - 3600)
+    local last = nil
+    for _, s in ipairs(stats.series) do
+        if s.period == period then last = s end
+    end
+    spyweb.assert_ne(last, nil)
+    spyweb.assert_eq(last.total, 2)
+    spyweb.assert_eq(last.up_count, 2)
+end
+
 function test_incident_transition_cap_is_per_monitor()
     db.ensure_schema()
     local aid, bid = seed_two_monitors()

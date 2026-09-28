@@ -26,6 +26,9 @@ local function request(method, path, data)
         resp, err = http_post(url, json_encode(data), headers)
     end
 
+    if resp and resp.status and resp.status >= 400 then
+        return nil, "HTTP " .. resp.status
+    end
     return resp, err
 end
 

@@ -5,9 +5,6 @@
         <span class="i-mdi-view-dashboard-outline text-[var(--accent)] mr-2" />
         Dashboard
       </h1>
-      <span v-if="stats" class="last-updated">
-        Updated {{ formatRelative(stats.generated_at) }}
-      </span>
     </div>
     <div class="topbar-actions">
       <button class="btn-secondary" @click="loadStats">
@@ -101,7 +98,7 @@
             <ul class="incident-list">
               <li v-for="inc in paginatedIncidents" :key="inc.monitor_id + '-' + inc.started_at" class="incident-item">
                 <span class="incident-dot" :class="inc.status === 'UP' ? 'is-up' : 'is-down'" />
-                <RouterLink class="incident-name" :to="'/monitors'">{{ inc.name }}</RouterLink>
+                <RouterLink class="incident-name" :to="{ path: '/monitors', query: { id: String(inc.monitor_id) } }">{{ inc.name }}</RouterLink>
                 <span class="incident-url">{{ inc.url }}</span>
                 <span v-if="inc.status_code" class="incident-code">{{ inc.status_code }}</span>
                 <span class="incident-status" :class="inc.status === 'UP' ? 'is-up' : 'is-down'">
@@ -133,7 +130,7 @@
             <ul class="attention-list">
               <li v-for="item in paginatedAttention" :key="item.monitor_id" class="attention-item">
                 <span class="incident-dot" :class="item.status === 'DOWN' ? 'is-down' : 'is-unknown'" />
-                <RouterLink class="incident-name" to="/monitors">{{ item.name }}</RouterLink>
+                <RouterLink class="incident-name" :to="{ path: '/monitors', query: { id: String(item.monitor_id) } }">{{ item.name }}</RouterLink>
                 <span class="attention-reason" :class="item.status === 'DOWN' ? 'is-down' : 'is-unknown'">{{ item.reason }}</span>
                 <span v-if="item.status_code" class="incident-code">{{ item.status_code }}</span>
                 <span class="incident-at">{{ item.last_check_at != null ? formatRelative(item.last_check_at) : 'Never checked' }}</span>
@@ -150,7 +147,7 @@
           <div v-if="stats.slowest.length === 0" class="panel-empty">No response data yet</div>
           <ul v-else class="slow-list">
             <li v-for="item in stats.slowest" :key="item.monitor_id" class="slow-item">
-              <RouterLink class="incident-name" to="/monitors">{{ item.name }}</RouterLink>
+              <RouterLink class="incident-name" :to="{ path: '/monitors', query: { id: String(item.monitor_id) } }">{{ item.name }}</RouterLink>
               <span class="incident-url">{{ item.url }}</span>
               <span class="slow-value"><ResponseTime :ms="item.avg_response_time_ms" /></span>
               <span class="slow-samples">{{ item.samples }} checks</span>

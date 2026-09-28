@@ -69,8 +69,10 @@ function M.list_all()
 end
 
 function M.monitor_list(opts)
-  local page = opts.page or 1
-  local per_page = opts.per_page or 25
+  local page = math.floor(tonumber(opts.page) or 1)
+  if page < 1 then page = 1 end
+  local per_page = math.floor(tonumber(opts.per_page) or 25)
+  if per_page < 1 then per_page = 1 elseif per_page > 100 then per_page = 100 end
   local sort = opts.sort or "created_at"
   local order = opts.order or "desc"
   local q = opts.q or ""
@@ -295,7 +297,7 @@ function M.get_uptime(monitor_ids, windows)
 
   local placeholders = {}
   for _ = 1, #ids do placeholders[#placeholders + 1] = "?" end
-  local where = "m.id IN (" .. table.concat(placeholders, ",") .. ")"
+  local where = "m.id IN (" .. table.concat(placeholders, ",") .. ") AND m.enabled = 1"
 
   local select_parts = {}
   local now = os.time()
@@ -529,6 +531,7 @@ local function global_series(days)
            SUM(%s) as up_count
     FROM check_history h
     WHERE checked_at >= ?
+      AND h.monitor_id IN (SELECT id FROM monitors WHERE enabled = 1)
     GROUP BY period
     ORDER BY period ASC
   ]], eiu), { since })
@@ -584,6 +587,7 @@ local function global_aggregates(now)
       SUM(CASE WHEN checked_at >= ? AND %s = 1 THEN 1 ELSE 0 END) as up_30d,
       SUM(CASE WHEN checked_at >= ? THEN 1 ELSE 0 END) as total_30d
     FROM check_history h
+    WHERE h.monitor_id IN (SELECT id FROM monitors WHERE enabled = 1)
   ]], eiu, eiu, eiu), {
     now - 86400, now - 86400,
     now - 604800, now - 604800,
@@ -666,12 +670,12 @@ function M.get_incidents(monitor_ids, limit, role)
   local transitions
 
   if role == "central" then
-    local where = ""
+    local where = "WHERE m.enabled = 1"
     local params = {}
     if monitor_ids then
       local placeholders = {}
       for _ = 1, #monitor_ids do placeholders[#placeholders + 1] = "?" end
-      where = "WHERE ct.monitor_id IN (" .. table.concat(placeholders, ",") .. ")"
+      where = where .. " AND ct.monitor_id IN (" .. table.concat(placeholders, ",") .. ")"
       for _, id in ipairs(monitor_ids) do params[#params + 1] = id end
     end
     transitions = db_query([[
@@ -691,15 +695,21 @@ function M.get_incidents(monitor_ids, limit, role)
       ORDER BY monitor_id, transitioned_at, transition_id
     ]], params)
   else
-    local where = ""
+    local where = "AND m.enabled = 1"
     local params = {}
     if monitor_ids then
       local placeholders = {}
       for _ = 1, #monitor_ids do placeholders[#placeholders + 1] = "?" end
-      where = "AND h.monitor_id IN (" .. table.concat(placeholders, ",") .. ")"
+      where = where .. " AND h.monitor_id IN (" .. table.concat(placeholders, ",") .. ")"
       for _, id in ipairs(monitor_ids) do params[#params + 1] = id end
     end
-    transitions = db_query([[
+    -- Recency window inside the LAG subquery: the only placement that
+    -- avoids materializing LAG over the whole retained table. Edge
+    -- semantics: a transition older than the window is not shown (its
+    -- first in-window row has prev_is_up NULL and is filtered below) —
+    -- no spurious transitions are invented at the boundary.
+    local cutoff = os.time() - (30 * 86400)
+    transitions = db_query(string.format([[
       SELECT monitor_id, name, url, status, status_code, transitioned_at
       FROM (
         SELECT h.transition_id, h.monitor_id, m.name, m.url,
@@ -715,14 +725,15 @@ function M.get_incidents(monitor_ids, limit, role)
                    PARTITION BY monitor_id ORDER BY checked_at, id
                  ) AS prev_is_up
           FROM check_history
+          WHERE checked_at >= %d
         ) h
         JOIN monitors m ON m.id = h.monitor_id
         WHERE h.prev_is_up IS NOT NULL AND h.status != h.prev_is_up
-          ]] .. where .. [[
+          %s
       ) limited
       WHERE rn <= 40
       ORDER BY monitor_id, transitioned_at, transition_id
-    ]], params)
+    ]], cutoff, where), params)
   end
 
   local incidents = pair_incidents(transitions)

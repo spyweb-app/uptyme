@@ -679,8 +679,58 @@ function test_logger_connectivity_transition_logging()
     -- warn on 1st, error on down, info on up
     spyweb.assert_eq(#file_lines, 3)
     spyweb.assert_eq(file_lines[1], "central unreachable, first failure — timeout")
-    spyweb.assert_eq(file_lines[2], "Central unreachable — https://central.example.com (after 3 consecutive failures)")
+    spyweb.assert_eq(file_lines[2], "Central unreachable — https://central.example.com (after 3 consecutive failures): timeout")
     spyweb.assert_eq(file_lines[3], "Central connection restored — https://central.example.com")
+
+    restore()
+end
+
+function test_429_counts_as_connectivity_failure()
+    set_bootstrap(true, "node1.secret", "https://central.example.com", "checker")
+    runtime_config.get = function()
+        return {
+            enabled = true,
+            auth_token = "node1.secret",
+            central_url = "https://central.example.com",
+            role = "checker",
+            central_alert_failures = 3,
+            checker_alerts = { desktop = false },
+        }
+    end
+    runtime_config.logging = function() return { level = "info", output = "both", throttle = 0 } end
+
+    local file_lines, _, restore = stub_logger()
+
+    -- First 429: counted as a connectivity failure, warn carries HTTP 429.
+    stub_http_get({ { resp = { status = 429, body = '{"success":false,"error":"Rate limit exceeded"}' } } })
+    before_fetch({ url = "", headers = {} }, { shared = {} })
+    spyweb.assert_eq(#file_lines, 1)
+    spyweb.assert_ne(string.find(file_lines[1], "HTTP 429", 1, true), nil)
+    spyweb.assert_ne(string.find(file_lines[1], "first failure", 1, true), nil)
+
+    -- Two more 429s reach the threshold → DOWN (throttle no longer
+    -- masquerades as healthy contact).
+    stub_http_get({ { resp = { status = 429, body = "" } } })
+    before_fetch({ url = "", headers = {} }, { shared = {} })
+    stub_http_get({ { resp = { status = 429, body = "" } } })
+    before_fetch({ url = "", headers = {} }, { shared = {} })
+    spyweb.assert_eq(#file_lines, 2)
+    spyweb.assert_ne(string.find(file_lines[2], "Central unreachable", 1, true), nil)
+
+    restore()
+end
+
+function test_response_without_status_field_is_success()
+    set_bootstrap(true, "node1.secret", "https://central.example.com", "checker")
+    runtime_config.logging = function() return { level = "info", output = "both", throttle = 0 } end
+
+    local file_lines, _, restore = stub_logger()
+
+    -- Legacy stub shape (no status field) must keep taking the OK path:
+    -- version equals cached → early return, no failure logged.
+    stub_http_get({ { resp = { body = "0" } } })
+    before_fetch({ url = "", headers = {} }, { shared = {} })
+    spyweb.assert_eq(#file_lines, 0)
 
     restore()
 end

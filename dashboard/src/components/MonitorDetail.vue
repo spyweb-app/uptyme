@@ -162,9 +162,9 @@ function isBlocked(code: number | null) {
 // helpers
 function uptimeColor(val: number | null) {
   if (val === null) return ''
-  if (val >= 99) return 'text-green-400'
-  if (val >= 95) return 'text-yellow-400'
-  return 'text-red-400'
+  if (val >= 99) return 'text-up'
+  if (val >= 95) return 'text-blocked'
+  return 'text-down'
 }
 
 function formatInterval(sec: number) {
@@ -174,8 +174,8 @@ function formatInterval(sec: number) {
 }
 
 function checkStatusClass(h: Check) {
-  if (isBlocked(h.status_code)) return 'text-amber-400'
-  return h.is_up ? 'text-green-400' : 'text-red-400'
+  if (isBlocked(h.status_code)) return 'text-blocked'
+  return h.is_up ? 'text-up' : 'text-down'
 }
 
 function checkStatusLabel(h: Check) {
@@ -185,9 +185,9 @@ function checkStatusLabel(h: Check) {
 
 function certColor(daysLeft: number | null) {
   if (daysLeft === null) return ''
-  if (daysLeft > 30) return 'text-green-400'
-  if (daysLeft > 14) return 'text-yellow-400'
-  return 'text-red-400'
+  if (daysLeft > 30) return 'text-up'
+  if (daysLeft > 14) return 'text-blocked'
+  return 'text-down'
 }
 
 // lifecycle

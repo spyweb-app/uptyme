@@ -472,12 +472,14 @@ function test_email_sendgrid_payload()
     spyweb.assert_eq(c.headers["Authorization"], "Bearer SG.test")
 end
 
-function test_email_no_provider_does_nothing()
-    local called = false
-    http_post = function() called = true end
+function test_email_missing_provider_defaults_to_sendgrid()
+    local url
+    http_post = function(u) url = u end
     local svc = require("lib.notifier.email")
-    svc.send({}, { monitor = "Test", url = "https://test.com", severity = "DOWN", message = "msg", timestamp = 1000 })
-    spyweb.assert_eq(called, false)
+    svc.send({ to = "user@example.com", from = "alert@uptyme", api_key = "SG.test" }, {
+        monitor = "Test", url = "https://test.com", severity = "DOWN", message = "msg", timestamp = 1000
+    })
+    spyweb.assert_eq(url, "https://api.sendgrid.com/v3/mail/send")
 end
 
 -- =============================================================================

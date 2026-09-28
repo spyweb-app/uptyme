@@ -45,7 +45,7 @@
         </div>
 
         <div class="card-actions">
-          <a :href="publicLink(page)" target="_blank" rel="noopener" class="btn-secondary btn-small no-underline" title="Preview public page">
+          <a v-if="page.is_public === 1" :href="publicLink(page)" target="_blank" rel="noopener" class="btn-secondary btn-small no-underline" title="Preview public page">
             <span class="i-mdi-open-in-new mr-1" />
             Preview
           </a>

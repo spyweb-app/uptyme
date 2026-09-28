@@ -1,5 +1,7 @@
 local H = require("server.tests.helpers")
 local db = require("lib.db")
+local settings = require("handlers.settings")
+local runtime_config = require("lib.runtime_config")
 
 -- PUT /settings is throttled to 10 requests per window; these tests each PUT
 -- more than once, so reset the window the same way the monitor tests do.
@@ -140,4 +142,14 @@ function test_update_settings_checker_stale_channel_range()
 
     local bad_bool = put_settings({ checker_stale_alert = "maybe" })
     spyweb.assert_eq(bad_bool.status, 400)
+end
+
+function test_update_settings_rejects_checker()
+    local orig = runtime_config.role
+    runtime_config.role = function() return "checker" end
+    local resp = settings.update({ body = json_encode({ instance_name = "Hacked" }) })
+    runtime_config.role = orig
+
+    spyweb.assert_eq(resp.status, 403)
+    spyweb.assert_ne(db.get_settings().instance_name, "Hacked")
 end

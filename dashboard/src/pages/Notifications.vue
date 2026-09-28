@@ -109,7 +109,7 @@ import LoadingOverlay from '~com/LoadingOverlay.vue'
 import { ref, onMounted, watch } from 'vue'
 import { api, type NotificationChannel } from '~lib/api'
 import { useChannelStore } from '~stores/channels'
-import { showNotification } from '~stores/app'
+import { showNotification, instanceName } from '~stores/app'
 import { keyVersion } from '~stores/auth'
 import ChannelForm from '~com/ChannelForm.vue'
 import ConfirmDialog from '~com/ConfirmDialog.vue'
@@ -175,7 +175,7 @@ async function doDelete() {
 }
 
 async function testChannel(ch: NotificationChannel) {
-  const body = { message: 'Test notification from PULSE' }
+  const body = { message: 'Test notification from ' + instanceName.value }
   sendingId.value = ch.id
   testRequestBody.value = JSON.stringify(body, null, 2)
   try {
@@ -261,7 +261,7 @@ onMounted(() => { channelStore.load() })
   border: 1px solid var(--border);
   border-radius: 12px;
   width: 100%;
-  max-width: 420px;
+  max-width: 720px;
   box-shadow: 0 25px 50px -12px rgba(0,0,0,0.4);
   margin: 0 1rem;
   overflow: hidden;
@@ -324,6 +324,8 @@ onMounted(() => { channelStore.load() })
   border-radius: 8px;
   padding: 10px 12px;
   overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   margin: 0;
   font-family: 'Menlo', 'Monaco', monospace;
   line-height: 1.5;

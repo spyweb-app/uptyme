@@ -28,6 +28,9 @@ function M.create(self)
 end
 
 function M.test(self)
+    local denied = H.reject_checker_mutation("Notification channels")
+    if denied then return denied end
+
     local id, id_err = H.require_id(self, "Channel")
     if not id then return id_err end
 

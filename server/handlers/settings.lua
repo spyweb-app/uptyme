@@ -12,6 +12,9 @@ function M.get(self)
 end
 
 function M.update(self)
+    local denied = H.reject_checker_mutation("Settings")
+    if denied then return denied end
+
     local data, err = H.parse_body(self)
     if not data then return err end
 

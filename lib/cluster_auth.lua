@@ -3,10 +3,8 @@ local sha256 = require("lib.sha256")
 
 local M = {}
 
-M.HEADER_KEY = "x-pulse-checker-token"
-M.LOCAL_NAME = "x-pulse-node-name"
-
-local reported_names = {}  -- node_id -> local name
+M.HEADER_KEY = "x-uptyme-checker-token"
+M.LOCAL_NAME = "x-uptyme-node-name"
 
 function M.generate_token()
     local function hex_bytes(n)
@@ -58,9 +56,8 @@ function M.verify(self)
     db.touch_node(node.id)
 
     local name = headers[M.LOCAL_NAME]
-    if name and name ~= "" and reported_names[node.id] ~= name then
+    if name and name ~= "" and (node.local_name or "") ~= name then
         db.update_node_local_name(node.id, name)
-        reported_names[node.id] = name
     end
 
     return node

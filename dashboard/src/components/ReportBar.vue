@@ -312,7 +312,7 @@ onBeforeUnmount(() => hideTooltip())
 }
 
 .bar-green { @apply bg-[var(--up)]; }
-.bar-yellow { @apply bg-yellow-500; }
+.bar-yellow { @apply bg-[var(--blocked)]; }
 .bar-orange { @apply bg-orange-500; }
 .bar-red { @apply bg-[var(--down)]; }
 .bar-gray { @apply bg-[var(--border)]; }

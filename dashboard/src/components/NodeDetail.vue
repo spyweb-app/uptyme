@@ -44,7 +44,7 @@
             <span class="stat-box-label">Monitors</span>
           </div>
           <div class="stat-box">
-            <span class="stat-box-value" :class="node.active === 1 ? 'text-green-400' : 'text-[var(--text-muted)]'">
+            <span class="stat-box-value" :class="node.active === 1 ? 'text-up' : 'text-[var(--text-muted)]'">
               {{ node.active === 1 ? 'Active' : 'Inactive' }}
             </span>
             <span class="stat-box-label">Status</span>
@@ -97,7 +97,7 @@
                   <span class="monitor-name">{{ r.monitor_name || '-' }}</span>
                 </td>
                 <td>
-                  <span :class="r.is_up ? 'text-green-400' : 'text-red-400'">
+                  <span :class="r.is_up ? 'text-up' : 'text-down'">
                     {{ r.is_up ? 'UP' : 'DOWN' }}
                   </span>
                 </td>

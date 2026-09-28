@@ -70,9 +70,9 @@ const dotColor = computed(() => {
 
 // helpers
 function uptimeClass(val: number) {
-  if (val >= 99) return 'text-green-400'
-  if (val >= 95) return 'text-yellow-400'
-  return 'text-red-400'
+  if (val >= 99) return 'text-up'
+  if (val >= 95) return 'text-blocked'
+  return 'text-down'
 }
 
 function formatInterval(sec: number) {

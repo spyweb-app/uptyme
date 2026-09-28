@@ -143,6 +143,7 @@
 defineOptions({ layout: 'default' })
 
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { api, type Monitor } from '~lib/api'
 import { useMonitorStore } from '~stores/monitors'
 import LoadingOverlay from '~com/LoadingOverlay.vue'
@@ -154,6 +155,8 @@ import { showNotification, nodeRole } from '~stores/app'
 import { keyVersion } from '~stores/auth'
 
 const store = useMonitorStore()
+const route = useRoute()
+const router = useRouter()
 
 const isChecker = computed(() => nodeRole.value === 'checker')
 
@@ -290,8 +293,34 @@ watch(keyVersion, () => {
   loadMonitors()
 })
 
+async function openMonitorFromQuery(id: number) {
+  if (searchTimer) clearTimeout(searchTimer)
+  q.value = ''
+  enabledFilter.value = -1
+  page.value = 1
+  await loadMonitors()
+  if (store.monitors.some(m => m.id === id)) {
+    store.selectedMonitorId = id
+  } else {
+    try {
+      const mon = await api.getMonitor(id)
+      store.monitors.push(mon)
+      store.selectedMonitorId = id
+    } catch {
+      showNotification('Monitor not found', 'error')
+    }
+  }
+  router.replace({ path: '/monitors' })
+}
+
 onMounted(() => {
-  loadMonitors()
+  const raw = route.query.id
+  const id = Number(Array.isArray(raw) ? raw[0] : raw)
+  if (Number.isFinite(id) && id > 0) {
+    openMonitorFromQuery(id)
+  } else {
+    loadMonitors()
+  }
   document.addEventListener('click', onClickAway)
 })
 

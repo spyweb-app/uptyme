@@ -1,5 +1,16 @@
 local H = require("server.tests.helpers")
 local db = require("lib.db")
+local channels = require("handlers.channels")
+local runtime_config = require("lib.runtime_config")
+
+local function as_checker(fn)
+    local orig = runtime_config.role
+    runtime_config.role = function() return "checker" end
+    local ok, res = pcall(fn)
+    runtime_config.role = orig
+    if not ok then error(res, 2) end
+    return res
+end
 
 function test_get_channels_empty()
     db_exec("DELETE FROM notification_channels")
@@ -68,5 +79,39 @@ end
 function test_channel_test_404()
     local resp = http_request({ method = "PUT", url = H.api("/channels/999999/test"), body = "", headers = {} })
     spyweb.assert_eq(resp.status, 404)
+end
+
+function test_channel_rejects_checker_mutation()
+    db_exec("DELETE FROM notification_channels")
+
+    local create = as_checker(function()
+        return channels.create({ body = json_encode({ name = "Nope", type = "webhook", config = "{}" }) })
+    end)
+    spyweb.assert_eq(create.status, 403)
+
+    local update = as_checker(function()
+        return channels.update({ path_args = { "1" }, body = "{}" })
+    end)
+    spyweb.assert_eq(update.status, 403)
+
+    local remove = as_checker(function()
+        return channels.remove({ path_args = { "1" } })
+    end)
+    spyweb.assert_eq(remove.status, 403)
+
+    spyweb.assert_eq(db.list_channels()[1], nil)
+end
+
+function test_channel_test_send_rejects_checker()
+    db_exec("DELETE FROM notification_channels")
+    local created = json_decode(channels.create({
+        body = json_encode({ name = "T", type = "webhook", config = '{"url":"https://hook.example.com"}' }),
+    }).body)
+    local id = created.data.id
+
+    local resp = as_checker(function()
+        return channels.update({ path_args = { tostring(id), "test" }, body = "{}" })
+    end)
+    spyweb.assert_eq(resp.status, 403)
 end
 

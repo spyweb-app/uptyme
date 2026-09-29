@@ -61,8 +61,8 @@ async function submit() {
     } else {
       error.value = 'Invalid API key'
     }
-  } catch {
-    error.value = "Couldn't reach server"
+  } catch (e: any) {
+    error.value = e?.proxy ? e.message : "Couldn't reach server"
   } finally {
     pending.value = false
   }

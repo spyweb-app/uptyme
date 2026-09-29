@@ -2,7 +2,7 @@
   <main class="public-status">
     <div class="public-status-inner">
       <header class="public-header">
-        <div class="brand"><span class="brand-mark">◆</span> PULSE</div>
+        <div class="brand"><span class="brand-mark">◆</span> {{ instanceName }}</div>
         <button class="refresh" :disabled="loading" @click="load">
           <span class="i-mdi-refresh" :class="{ spinning: loading }" />
           Refresh
@@ -193,7 +193,7 @@
           <div v-else class="no-incidents">No incidents to report</div>
         </section>
 
-        <p class="powered">Powered by PULSE</p>
+        <p class="powered">Powered by {{ instanceName }}</p>
       </template>
     </div>
   </main>
@@ -211,6 +211,7 @@ import {
 import ReportChart from "~com/ReportChart.vue";
 import ReportBar from "~com/ReportBar.vue";
 import ResponseTime from "~com/ResponseTime.vue";
+import { instanceName, setInstanceName } from "~stores/app";
 
 // state
 const route = useRoute();
@@ -231,7 +232,7 @@ const todayAvgMs = computed(() => {
 });
 
 const currentIncidents = computed(() => {
-  if (isGroup(page.value))
+  if (page.value && isGroup(page.value))
     return (page.value as PublicGroupPage).incidents ?? [];
   return (mp.value as any)?.incidents ?? [];
 });
@@ -325,6 +326,8 @@ async function load() {
   try {
     page.value = await getPublicStatus(String(route.params.slug || ""));
     applyTheme(page.value?.theme);
+    setInstanceName(page.value?.instance_name);
+    document.title = instanceName.value + " - Status";
   } catch (err) {
     page.value = null;
     error.value =

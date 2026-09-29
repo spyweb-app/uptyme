@@ -1,7 +1,16 @@
 import { apiKey, showAuthModal } from '~stores/auth'
-import { instanceName } from '~stores/app'
+import { instanceName, showNotification } from '~stores/app'
 
 const BASE = '/api/v'
+
+function proxyError(status: number): Error {
+  const message = status === 403
+    ? `Blocked (HTTP ${status}) - your IP is likely restricted or not allowlisted by the reverse proxy`
+    : `Expected JSON but got an HTML page (HTTP ${status}) - a reverse proxy answered instead of the app. Check that it forwards /api/*`
+  const err = new Error(message) as Error & { proxy?: boolean }
+  err.proxy = true
+  return err
+}
 
 async function request<T>(url: string, opts?: RequestInit): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
@@ -17,8 +26,16 @@ async function request<T>(url: string, opts?: RequestInit): Promise<T> {
     throw new Error('Unauthorized')
   }
 
-  const json = await res.json()
-  if (!json.success) throw new Error(json.error || 'Request failed')
+  let json: any
+  try {
+    json = await res.json()
+  } catch {
+    const err = proxyError(res.status)
+    showNotification(err.message, 'error')
+    throw err
+  }
+
+  if (!json.success) throw new Error(json.error || `Request failed (HTTP ${res.status})`)
 
   let data = json.data
   if (data?.items && !Array.isArray(data.items)) data.items = []
@@ -251,6 +268,7 @@ export const api = {
     })
     if (res.status === 401) return false
     const json = await res.json().catch(() => null)
+    if (json === null) throw proxyError(res.status)
     return json?.success === true
   },
 
@@ -262,7 +280,8 @@ export const api = {
     const res = await fetch(BASE + '/monitors_export?format=' + format, { headers })
     if (!res.ok) {
       if (res.status === 401) showAuthModal.value = true
-      const err = await res.json().catch(() => ({}))
+      const err = await res.json().catch(() => null)
+      if (!err) throw res.status === 401 ? new Error('Unauthorized') : proxyError(res.status)
       throw new Error(err.error || 'Export failed')
     }
     const blob = await res.blob()

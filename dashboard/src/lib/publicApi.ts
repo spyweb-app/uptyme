@@ -43,7 +43,7 @@ export interface PublicGroupPage {
   incidents: PublicIncident[]
 }
 
-export type PublicStatusPage = (PublicMonitorPage | PublicGroupPage) & { theme?: string }
+export type PublicStatusPage = (PublicMonitorPage | PublicGroupPage) & { theme?: string; instance_name?: string }
 
 export interface PublicReport {
   summary: NonNullable<PublicMonitorStatus['summary']>

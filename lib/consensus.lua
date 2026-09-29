@@ -27,10 +27,12 @@ function M.evaluate(monitor_id, is_up_snapshot, settings)
 
 	local live_count = #rows
 	local down_votes = 0
+	local down_names = {}
 
 	for _, row in ipairs(rows) do
 		if row.is_up == 0 then
 			down_votes = down_votes + 1
+			table.insert(down_names, row.name)
 		end
 	end
 
@@ -51,12 +53,18 @@ function M.evaluate(monitor_id, is_up_snapshot, settings)
 	end
 
 	if state.current_status ~= new_status then
+		local detail = ""
+		if #down_names > 0 then
+			local label = new_status == "DOWN" and "down" or "still down"
+			detail = " (" .. label .. ": " .. table.concat(down_names, ", ") .. ")"
+		end
+
 		if monitor then
 			notifier.dispatch(monitor_id, {
 				monitor = monitor.name,
 				url = monitor.url,
 				severity = new_status,
-				message = "Cluster consensus: " .. down_votes .. "/" .. live_count .. " nodes report " .. new_status,
+				message = "Cluster consensus: " .. down_votes .. "/" .. live_count .. " nodes report " .. new_status .. detail,
 				timestamp = now,
 			})
 		end

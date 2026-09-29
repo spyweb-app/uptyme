@@ -84,11 +84,12 @@ end
 
 function M.get_nodes_with_reports(monitor_id, cutoff)
   return db_query([[
-    SELECT n.id, r.is_up, r.reported_at
+    SELECT n.id, n.name, r.is_up, r.reported_at
     FROM nodes n
     INNER JOIN node_reports r ON r.node_id = n.id AND r.monitor_id = ?
     WHERE n.active = 1
       AND r.reported_at >= ?
+    ORDER BY n.id
   ]], { monitor_id, cutoff })
 end
 

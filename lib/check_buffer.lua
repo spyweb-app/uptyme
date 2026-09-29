@@ -47,4 +47,12 @@ function M.drain_status()
   return rows
 end
 
+function M.any_pending()
+  return #history_buffer > 0 or #node_report_buffer > 0 or #status_buffer > 0
+end
+
+function M.total_rows()
+  return #history_buffer + #node_report_buffer + #status_buffer
+end
+
 return M

@@ -2,6 +2,7 @@ local db = require("lib.db")
 local alert = require("alert")
 local check_buffer = require("lib.check_buffer")
 local report_buffer = require("lib.report_buffer")
+local flush = require("lib.flush")
 
 local M = {}
 
@@ -53,6 +54,7 @@ function M.after_fetch(role, s, now, result)
       response_time_ms = result.response_time_ms,
       error_message = result.err_msg,
     })
+    flush.maybe_flush(now, role)
     return
   end
 
@@ -78,6 +80,8 @@ function M.after_fetch(role, s, now, result)
       error_message = result.err_msg,
     })
   end
+
+  flush.maybe_flush(now, role)
 end
 
 return M

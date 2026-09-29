@@ -3,6 +3,8 @@ local check = require("lib.check_pipeline")
 local alert = require("alert")
 local check_buffer = require("lib.check_buffer")
 local role_strategies = require("lib.role_strategies")
+local flush_mod = require("lib.flush")
+local report_buffer = require("lib.report_buffer")
 
 -- =============================================================================
 -- Helpers
@@ -526,8 +528,13 @@ function test_after_fetch_records_up()
         request = { url = "https://up.example.com" },
     }
 
+    flush_mod._set_last_flush(os.time())  -- gate closed: no mid-round flush
     local result = after_fetch(fetch_result, ctx)
     spyweb.assert_eq(result, nil)
+
+    -- gate off: nothing persisted until the explicit drains below
+    spyweb.assert_eq(#db_query("SELECT 1 FROM check_history WHERE monitor_id = ?", { id }), 0)
+    spyweb.assert_eq(check_buffer.any_pending(), true)
 
     flush_status()
 
@@ -551,8 +558,14 @@ function test_after_fetch_records_down()
         request = { url = "https://down.example.com" },
     }
 
+    flush_mod._set_last_flush(os.time() - 16)  -- age gate open: flush mid-round
     local result = after_fetch(fetch_result, ctx)
     spyweb.assert_eq(result, nil)
+
+    -- age gate fired: persisted without the manual drains below
+    local pre = db_query("SELECT * FROM monitors WHERE id = ?", { id })
+    spyweb.assert_eq(pre[1].is_up, 0)
+    spyweb.assert_eq(#db_query("SELECT * FROM check_history WHERE monitor_id = ?", { id }), 1)
 
     flush_status()
 
@@ -565,6 +578,10 @@ function test_after_fetch_records_down()
     local history = db_query("SELECT * FROM check_history WHERE monitor_id = ?", { id })
     spyweb.assert_eq(#history, 1)
     spyweb.assert_eq(history[1].is_up, 0)
+
+    -- consecutive maybe_flush with no new pushes is a no-op
+    flush_mod.maybe_flush(os.time(), "standalone")
+    spyweb.assert_eq(#db_query("SELECT * FROM check_history WHERE monitor_id = ?", { id }), 1)
 end
 
 function test_after_fetch_403_is_up()
@@ -627,6 +644,138 @@ function test_after_fetch_content_check_fails()
     local monitor = db_query("SELECT * FROM monitors WHERE id = ?", { id })
     spyweb.assert_eq(monitor[1].is_up, 0)
 end
+
+-- =============================================================================
+-- time-based flush (lib/flush.lua)
+-- =============================================================================
+
+function test_flush_size_gate()
+    local id = make_monitor("SizeGate", "https://size.example.com", true)
+
+    for _ = 1, 500 do
+        check_buffer.push_history({
+            monitor_id = id,
+            status_code = 200,
+            response_time_ms = 5,
+            is_up = 1,
+            error_message = "",
+            checked_at = os.time(),
+        })
+    end
+
+    flush_mod._set_last_flush(os.time())  -- age gate closed
+    flush_mod.maybe_flush(os.time(), "standalone")
+
+    spyweb.assert_eq(check_buffer.any_pending(), false)
+    local rows = db_query("SELECT COUNT(*) AS c FROM check_history WHERE monitor_id = ?", { id })
+    spyweb.assert_eq(rows[1].c, 500)
+end
+
+function test_flush_checker_gate_and_report_batch()
+    local id = make_monitor("ChkFlush", "https://chk.example.com", true)
+    local central_client = require("lib.central_client")
+    local orig_post = central_client.post
+    local posts = {}
+
+    local s = {
+        monitor_id = id,
+        monitor_name = "ChkFlush",
+        monitor_url = "https://chk.example.com",
+        check_cert = 0,
+        desktop_notify = 0,
+        was_up = true,
+        prev_failures = 0,
+    }
+    local result = {
+        is_up = 0,
+        status_code = 500,
+        response_time_ms = 10,
+        new_failures = 1,
+        err_msg = "boom",
+        severity = "DOWN",
+    }
+
+    -- A: gate closed -> no flush, no POST, report stays buffered
+    central_client.post = function(path, data)
+        table.insert(posts, { path = path, data = data })
+        return { status = 200 }
+    end
+    flush_mod._set_last_flush(os.time())
+    role_strategies.after_fetch("checker", s, os.time(), result)
+    spyweb.assert_eq(#posts, 0)
+    local held = report_buffer.flush()
+    spyweb.assert_eq(#held, 1)
+    report_buffer.push(held[1])  -- re-seed for phase B
+
+    -- B: aged gate + failing POST -> local writes landed first, report consumed first
+    central_client.post = function() error("post exploded") end
+    flush_mod._set_last_flush(os.time() - 16)
+    local ok = pcall(role_strategies.after_fetch, "checker", s, os.time(), result)
+    spyweb.assert_eq(ok, false)
+    local m = db_query("SELECT * FROM monitors WHERE id = ?", { id })
+    spyweb.assert_eq(m[1].is_up, 0)
+    spyweb.assert_eq(#report_buffer.flush(), 0)
+
+    -- C: aged gate + healthy POST -> exactly one batch
+    posts = {}
+    central_client.post = function(path, data)
+        table.insert(posts, { path = path, data = data })
+        return { status = 200 }
+    end
+    flush_mod._set_last_flush(os.time() - 16)
+    role_strategies.after_fetch("checker", s, os.time(), result)
+    spyweb.assert_eq(#posts, 1)
+    spyweb.assert_eq(posts[1].path, "/report")
+    spyweb.assert_eq(#posts[1].data.reports, 1)
+
+    central_client.post = orig_post
+end
+
+function test_flush_central_role_gate_and_consensus()
+    local id = make_monitor("CtrFlush", "https://ctr.example.com", true)
+    local central_client = require("lib.central_client")
+    local notifier = require("lib.notifier")
+    local orig_post = central_client.post
+    local orig_dispatch = notifier.dispatch
+    local posts = {}
+    local dispatches = 0
+
+    central_client.post = function(path, data)
+        table.insert(posts, { path = path, data = data })
+        return { status = 200 }
+    end
+    notifier.dispatch = function()
+        dispatches = dispatches + 1
+    end
+
+    report_buffer.push({
+        monitor_id = id,
+        is_up = 1,
+        status_code = 200,
+        response_time_ms = 5,
+        error_message = "",
+    })
+    check_buffer.push_node_report({
+        monitor_id = id,
+        node_id = db.get_or_create_central_node().id,
+        is_up = 1,
+        status_code = 200,
+        response_time_ms = 5,
+        error_message = "",
+    })
+
+    flush_mod.flush("test", os.time(), "central")
+
+    spyweb.assert_eq(#posts, 0)                 -- role gate: no report POST
+    spyweb.assert_eq(#report_buffer.flush(), 1) -- report buffer untouched
+    local nr = db_query("SELECT COUNT(*) AS c FROM node_reports WHERE monitor_id = ?", { id })
+    spyweb.assert_eq(nr[1].c, 1)                -- node reports persisted
+    spyweb.assert_eq(dispatches, 0)             -- consensus evaluated, no transition
+
+    central_client.post = orig_post
+    notifier.dispatch = orig_dispatch
+end
+
 
 -- =============================================================================
 -- treat_4xx_as_down — pipeline.run

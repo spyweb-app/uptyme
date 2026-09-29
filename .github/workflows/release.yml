@@ -27,17 +27,17 @@ jobs:
 
       - name: Package release
         run: |
-          mkdir -p pulse/ui
+          mkdir -p uptyme/ui
           git ls-files | grep -v '^\.github/' | grep -v '^\.gitignore$' | grep -v '^ui/' \
-            | while read f; do mkdir -p "pulse/$(dirname "$f")" && cp -a "$f" "pulse/$f"; done
-          cp -r ui/. pulse/ui/
-          tar -czf "pulse-${GITHUB_REF_NAME}.tar.gz" pulse/
-          zip -r "pulse-${GITHUB_REF_NAME}.zip" pulse/
+            | while read f; do mkdir -p "uptyme/$(dirname "$f")" && cp -a "$f" "uptyme/$f"; done
+          cp -r ui/. uptyme/ui/
+          tar -czf "uptyme.tar.gz" uptyme/
+          zip -r "uptyme.zip" uptyme/
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            pulse-*.tar.gz
-            pulse-*.zip
+            uptyme.tar.gz
+            uptyme.zip
           generate_release_notes: true

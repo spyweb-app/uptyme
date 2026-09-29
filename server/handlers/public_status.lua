@@ -61,6 +61,7 @@ function M.get(self)
     end
 
     result.theme = settings.get_setting("status_page_theme", "light")
+    result.instance_name = settings.get_setting("instance_name", "UPTYME")
 
     return H.json_response(200, result)
 end

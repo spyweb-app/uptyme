@@ -1,4 +1,4 @@
--- PULSE bootstrap configuration
+-- UPTYME bootstrap configuration
 --
 -- This file is the main configuration for multi-node setup.
 -- Keep secrets out of this file. Use environment variables for tokens.
@@ -30,7 +30,7 @@ return {
     central_url = "https://central.example.com",
 
     -- Read the shared secret from an environment variable, not from disk.
-    auth_token = env_get("PULSE_CENTRAL_TOKEN"),
+    auth_token = env_get("UPTYME_CENTRAL_TOKEN"),
 
     -- Consecutive failed sync polls before "central unreachable" alert fires.
     central_alert_failures = 3,
@@ -40,7 +40,7 @@ return {
     checker_alerts = {
       desktop = true,
       channels = {
-        { type = "ntfy",    config = { url = "https://ntfy.sh", topic = "pulse-checker" } },
+        { type = "ntfy",    config = { url = "https://ntfy.sh", topic = "uptyme-checker" } },
         { type = "webhook", config = { url = "https://..." } },
         { type = "slack",   config = { url = "https://hooks.slack.com/services/T.../B.../XXX" } },
         { type = "discord", config = { url = "https://discord.com/api/webhooks/..." } },

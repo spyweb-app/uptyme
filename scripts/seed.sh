@@ -24,7 +24,7 @@ if [ ! -f "$MONITORS_FILE" ]; then
 fi
 
 if [ "$CENTRAL" -eq 1 ]; then
-  echo "Seeding $DB (central mode — consensus_transitions + node_reports + cluster_monitor_state) ..."
+  echo "Seeding $DB (central mode: consensus_transitions + node_reports + cluster_monitor_state) ..."
 else
   echo "Seeding $DB (standalone mode) ..."
 fi
@@ -36,7 +36,7 @@ while IFS='|' read -r name url; do
 
   EXISTS=$(sqlite3 "$DB" "SELECT id FROM monitors WHERE url = '$url';")
   if [ -n "$EXISTS" ]; then
-    echo "  Skipping $name — URL already exists (monitor #$EXISTS)"
+    echo "  Skipping $name - URL already exists (monitor #$EXISTS)"
     continue
   fi
 
@@ -52,7 +52,7 @@ DROP TABLE IF EXISTS temp.fate;
 CREATE TEMP TABLE fate (rn INTEGER PRIMARY KEY, val INTEGER);
 
 ----------------------------------------------------------------------
--- 1. Hourly — last 24h, ~6 checks/hr (every 10 min), 144 rows
+-- 1. Hourly - last 24h, ~6 checks/hr (every 10 min), 144 rows
 ----------------------------------------------------------------------
 INSERT INTO fate (rn, val)
   WITH RECURSIVE
@@ -84,7 +84,7 @@ JOIN fate f ON f.rn = h * 6 + s;
 DELETE FROM fate;
 
 ----------------------------------------------------------------------
--- 2. Half-day — days 7-1 ago, 24 checks per half-day
+-- 2. Half-day - days 7-1 ago, 24 checks per half-day
 ----------------------------------------------------------------------
 INSERT INTO fate (rn, val)
   WITH RECURSIVE
@@ -119,7 +119,7 @@ JOIN fate f ON f.rn = d * 48 + h * 24 + s;
 DELETE FROM fate;
 
 ----------------------------------------------------------------------
--- 3. Daily — days 30-7 ago, ~24 checks/day (every ~1 hr)
+-- 3. Daily - days 30-7 ago, ~24 checks/day (every ~1 hr)
 ----------------------------------------------------------------------
 INSERT INTO fate (rn, val)
   WITH RECURSIVE
